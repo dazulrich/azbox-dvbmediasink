@@ -1,5 +1,8 @@
 /*
  * GStreamer DVB Media Sink
+ *
+ * Copyright 2013 SIGMA DVB SMP86xx <savic.sasha@mail.com>
+ *
  * based on code by:
  * Copyright 2006 Felix Domke <tmbinc@elitedvb.net>
  * Copyright 2005 Thomas Vander Stichele <thomas@apestaart.org>

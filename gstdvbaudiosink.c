@@ -1,6 +1,7 @@
 /*
  * GStreamer DVB Media Sink
  * 
+ * Copyright 2013 SIGMA DVB SMP86xx <savic.sasha@mail.com>
  * Copyright 2011 <slashdev@gmx.net>
  *
  * based on code by:
@@ -81,6 +82,13 @@
 #include "gstdvbaudiosink.h"
 #include "gstdvbsink-marshal.h"
 
+#define AUDIO_RESET_STC                	_IO('o', 30)
+#define AUDIO_STC_PLAY					_IO('o', 31)
+#define AUDIO_STC_STOP					_IO('o', 32)
+#define AUDIO_FFW						_IO('o', 33)
+#define AUDIO_FBW						_IO('o', 34)
+
+
 GST_DEBUG_CATEGORY_STATIC(dvbaudiosink_debug);
 #define GST_CAT_DEFAULT dvbaudiosink_debug
 
@@ -111,12 +119,6 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 		"audio/x-private1-ac3, " \
 		"framed =(boolean) true; "
 
-#define EAC3CAPS \
-		"audio/x-eac3, " \
-		"framed =(boolean) true; " \
-		"audio/x-private1-eac3, " \
-		"framed =(boolean) true; "
-
 #define LPCMCAPS \
 		"audio/x-private1-lpcm, " \
 		"framed =(boolean) true; "
@@ -130,10 +132,6 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 #define WMACAPS \
 		"audio/x-wma, " \
 		"framed =(boolean) true; "
-
-#define AMRCAPS \
-		"audio/AMR, " \
-		"rate = (int) {8000, 16000}, channels = (int) 1; "
 
 #define PCMCAPS \
 		"audio/x-raw-int, " \
@@ -168,9 +166,6 @@ GST_STATIC_PAD_TEMPLATE(
 	GST_STATIC_CAPS(
 		MPEGCAPS 
 		AC3CAPS
-#ifdef HAVE_EAC3
-		EAC3CAPS
-#endif
 #ifdef HAVE_DTS
 		DTSCAPS
 #endif
@@ -179,9 +174,6 @@ GST_STATIC_PAD_TEMPLATE(
 #endif
 #ifdef HAVE_WMA
 		WMACAPS
-#endif
-#ifdef HAVE_AMR
-		AMRCAPS
 #endif
 #ifdef HAVE_PCM
 		PCMCAPS
@@ -339,9 +331,6 @@ static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *basesink)
 #ifdef HAVE_WMA
 		WMACAPS
 #endif
-#ifdef HAVE_AMR
-		AMRCAPS
-#endif
 #ifdef HAVE_PCM
 		PCMCAPS
 #endif
@@ -485,12 +474,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 	{
 		GST_INFO_OBJECT(self, "MIMETYPE %s",type);
 		bypass = 0;
-	}
-	else if (!strcmp(type, "audio/x-eac3"))
-	{
-		GST_INFO_OBJECT(self, "MIMETYPE %s",type);
-		bypass = 0x22;
-	}
+	}	
 	else if (!strcmp(type, "audio/x-private1-dts"))
 	{
 		GST_INFO_OBJECT(self, "MIMETYPE %s(DVD Audio - 2 byte skipping)",type);
@@ -503,14 +487,8 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		bypass = 0;
 		self->skip = 2;
 	}
-	else if (!strcmp(type, "audio/x-private1-eac3"))
-	{
-		GST_INFO_OBJECT(self, "MIMETYPE %s(DVD Audio - 2 byte skipping)",type);
-		bypass = 0x22;
-		self->skip = 2;
-	}
 	else if (!strcmp(type, "audio/x-private1-lpcm"))
-	{
+	{	 
 		GST_INFO_OBJECT(self, "MIMETYPE %s(DVD Audio)",type);
 		bypass = 6;
 	}
@@ -567,16 +545,6 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 			memcpy(data, GST_BUFFER_DATA(gst_value_get_buffer(codec_data)), codec_data_size);
 		}
 	}
-	else if (!strcmp(type, "audio/AMR"))
-	{
-		const GValue *codec_data = gst_structure_get_value(structure, "codec_data");
-		if (codec_data)
-		{
-			self->codec_data = gst_buffer_copy(gst_value_get_buffer(codec_data));
-		}
-		GST_INFO_OBJECT(self, "MIMETYPE %s",type);
-		bypass = 0x23;
-	}
 	else if (!strcmp(type, "audio/x-raw-int"))
 	{
 		guint8 *data;
@@ -630,7 +598,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 
 	if (self->playing)
 	{
-		if (self->fd >= 0) ioctl(self->fd, AUDIO_STOP, 0);
+		if (self->fd >= 0) ioctl(self->fd, AUDIO_STC_STOP, 0);
 		self->playing = FALSE;
 	}
 	if (self->fd < 0 || ioctl(self->fd, AUDIO_SET_BYPASS_MODE, bypass) < 0)
@@ -638,7 +606,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		GST_ELEMENT_ERROR(self, STREAM, TYPE_NOT_FOUND,(NULL),("hardware decoder can't be set to bypass mode type %s", type));
 		return FALSE;
 	}
-	if (self->fd >= 0) ioctl(self->fd, AUDIO_PLAY);
+	if (self->fd >= 0) ioctl(self->fd, AUDIO_STC_PLAY);
 	self->playing = TRUE;
 
 	self->bypass = bypass;
@@ -724,7 +692,7 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 		gboolean update;
 		gdouble rate;
 		gint64 start, end, pos;
-		int skip = 0, repeat = 0;
+		int skip = 0;
 		gst_event_parse_new_segment(event, &update, &rate, &format, &start, &end, &pos);
 		GST_DEBUG_OBJECT(self, "GST_EVENT_NEWSEGMENT rate=%f\n", rate);
 		if (format == GST_FORMAT_TIME)
@@ -732,22 +700,17 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 			self->timestamp_offset = start - pos;
 			if (rate != self->rate)
 			{
-				int video_fd = open("/dev/dvb/adapter0/video0", O_RDWR);
-				if (video_fd >= 0)
-				{
-					if (rate > 1.0)
-					{
-						skip = (int)rate;
-					}
-					else if (rate < 1.0)
-					{
-						repeat = 1.0 / rate;
-					}
-					ioctl(video_fd, VIDEO_SLOWMOTION, repeat);
-					ioctl(video_fd, VIDEO_FAST_FORWARD, skip);
-					close(video_fd);
-					video_fd = -1;
-				}
+				skip = (int)rate;
+				
+				if (rate > 1.0)
+					ioctl(self->fd, AUDIO_FFW, skip);
+
+				else if (rate < 1.0)					
+					ioctl(self->fd, AUDIO_FBW, skip);										
+					
+				else										
+					ioctl(self->fd, AUDIO_FFW, skip);						
+								
 				self->rate = rate;
 			}
 		}
@@ -974,19 +937,6 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 			pes_header_len += GST_BUFFER_SIZE(self->codec_data);
 		}
 	}
-	else if (self->bypass == 0x23)
-	{
-		if (self->codec_data && GST_BUFFER_SIZE(self->codec_data) >= 17)
-		{
-			size_t payload_len = size + 17;
-			pes_header[pes_header_len++] = (payload_len >> 24) & 0xff;
-			pes_header[pes_header_len++] = (payload_len >> 16) & 0xff;
-			pes_header[pes_header_len++] = (payload_len >> 8) & 0xff;
-			pes_header[pes_header_len++] = payload_len & 0xff;
-			memcpy(&pes_header[pes_header_len], GST_BUFFER_DATA(self->codec_data) + 8, 9);
-			pes_header_len += 9;
-		}
-	}
 	else if (self->bypass == 0x30)
 	{
 		if (self->codec_data && GST_BUFFER_SIZE(self->codec_data) >= 18)
@@ -1162,22 +1112,13 @@ static gboolean gst_dvbaudiosink_stop(GstBaseSink * basesink)
 	{
 		if (self->playing)
 		{
-			ioctl(self->fd, AUDIO_STOP);
+			ioctl(self->fd, AUDIO_STC_STOP);
 			self->playing = FALSE;
 		}
 		ioctl(self->fd, AUDIO_SELECT_SOURCE, AUDIO_SOURCE_DEMUX);
-
-		if (self->rate != 1.0)
-		{
-			int video_fd = open("/dev/dvb/adapter0/video0", O_RDWR);
-			if (video_fd >= 0)
-			{
-				ioctl(video_fd, VIDEO_SLOWMOTION, 0);
-				ioctl(video_fd, VIDEO_FAST_FORWARD, 0);
-				close(video_fd);
-			}
-			self->rate = 1.0;
-		}
+			
+		self->rate = 1.0;
+		
 		close(self->fd);
 		self->fd = -1;
 	}
@@ -1236,12 +1177,12 @@ static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement *element, G
 		if (self->fd >= 0)
 		{
 			ioctl(self->fd, AUDIO_SELECT_SOURCE, AUDIO_SOURCE_MEMORY);
-			ioctl(self->fd, AUDIO_PAUSE);
+			ioctl(self->fd,	AUDIO_RESET_STC);			
 		}
 		break;
 	case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
 		GST_DEBUG_OBJECT(self,"GST_STATE_CHANGE_PAUSED_TO_PLAYING");
-		if (self->fd >= 0) ioctl(self->fd, AUDIO_CONTINUE);
+		if (self->fd >= 0)  ioctl(self->fd, AUDIO_STC_PLAY); 
 		self->paused = FALSE;
 		break;
 	default:
@@ -1255,7 +1196,7 @@ static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement *element, G
 	case GST_STATE_CHANGE_PLAYING_TO_PAUSED:
 		GST_DEBUG_OBJECT(self,"GST_STATE_CHANGE_PLAYING_TO_PAUSED");
 		self->paused = TRUE;
-		if (self->fd >= 0) ioctl(self->fd, AUDIO_PAUSE);
+		if (self->fd >= 0) ioctl(self->fd, AUDIO_STC_STOP); 
 		/* wakeup the poll */
 		write(self->unlockfd[1], "\x01", 1);
 		break;

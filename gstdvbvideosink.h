@@ -1,5 +1,8 @@
 /*
  * GStreamer DVB Media Sink
+ *
+ * Copyright 2013 SIGMA DVB SMP86xx <savic.sasha@mail.com>
+ *
  * based on code by:
  * Copyright 2006 Felix Domke <tmbinc@elitedvb.net>
  * Copyright 2005 Thomas Vander Stichele <thomas@apestaart.org>
@@ -81,13 +84,6 @@ struct _GstDVBVideoSink
 	GstBuffer *codec_data;
 	t_codec_type codec_type;
 
-#ifdef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
-	/* data needed to pack bitstream (divx5 / xvid) */
-	gint num_non_keyframes, time_inc_bits, time_inc;
-	gboolean must_pack_bitstream;
-	GstBuffer *prev_frame;
-#endif
-
 	char saved_fallback_framerate[16];
 
 	gdouble rate;
@@ -97,6 +93,8 @@ struct _GstDVBVideoSink
 	gint64 timestamp_offset;
 	gboolean must_send_header;
 
+	gboolean check_if_packed_bitstream;
+	
 	queue_entry_t *queue;
 };
 

@@ -1,6 +1,7 @@
 /*
  * GStreamer DVB Media Sink
  *
+ * Copyright 2013 SIGMA DVB SMP86xx <savic.sasha@mail.com>
  * Copyright 2011 <slashdev@gmx.net>
  *
  * based on code by:
@@ -76,7 +77,6 @@
 #include <gst/gst.h>
 #include <gst/base/gstbasesink.h>
 
-#define PACK_UNPACKED_XVID_DIVX5_BITSTREAM
 
 #include "common.h"
 #include "gstdvbvideosink.h"
@@ -91,64 +91,13 @@ typedef struct video_codec_data
 #define VIDEO_SET_CODEC_DATA _IOW('o', 80, video_codec_data_t)
 #endif
 
-#ifdef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
-struct bitstream
-{
-	guint8 *data;
-	guint8 last;
-	int avail;
-};
-
-void bitstream_init(struct bitstream *bit, const void *buffer, gboolean wr)
-{
-	bit->data = (guint8*) buffer;
-	if (wr) {
-		bit->avail = 0;
-		bit->last = 0;
-	}
-	else {
-		bit->avail = 8;
-		bit->last = *bit->data++;
-	}
-}
-
-unsigned long bitstream_get(struct bitstream *bit, int bits)
-{
-	unsigned long res = 0;
-	while (bits)
-	{
-		unsigned int d = bits;
-		if (!bit->avail)
-		{
-			bit->last = *bit->data++;
-			bit->avail = 8;
-		}
-		if (d > bit->avail)
-			d=bit->avail;
-		res<<=d;
-		res|=(bit->last>>(bit->avail-d))&~(-1<<d);
-		bit->avail -= d;
-		bits -= d;
-	}
-	return res;
-}
-
-void bitstream_put(struct bitstream *bit, unsigned long val, int bits)
-{
-	while (bits)
-	{
-		bit->last |= ((val & (1 << (bits-1))) ? 1 : 0) << (7 - bit->avail);
-		if (++bit->avail == 8)
-		{
-			*bit->data = bit->last;
-			++bit->data;
-			bit->last = 0;
-			bit->avail = 0;
-		}
-		--bits;
-	}
-}
-#endif
+#define VIDEO_RESET_STC                	_IO('o', 81)
+#define VIDEO_STC_PLAY					_IO('o', 82)
+#define VIDEO_STC_STOP					_IO('o', 83)
+#define VIDEO_FFW						_IO('o', 84)
+#define VIDEO_FBW						_IO('o', 85)
+#define VIDEO_DIVX						_IO('o', 86)
+#define VIDEO_MPEG4_PACKED				_IO('o', 87)
 
 GST_DEBUG_CATEGORY_STATIC (dvbvideosink_debug);
 #define GST_CAT_DEFAULT dvbvideosink_debug
@@ -300,12 +249,7 @@ static void gst_dvbvideosink_init (GstDVBVideoSink *self, GstDVBVideoSinkClass *
 	self->pesheader_buffer = NULL;
 	self->codec_data = NULL;
 	self->codec_type = CT_H264;
-#ifdef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
-	self->must_pack_bitstream = FALSE;
-	self->num_non_keyframes = 0;
-	self->prev_frame = NULL;
-#endif
-	self->paused = self->playing = self->unlocking = self->flushing = FALSE;
+	self->paused = self->playing = self->unlocking = self->flushing = self->check_if_packed_bitstream = FALSE;
 	self->pts_written = FALSE;
 	self->lastpts = 0;
 	self->timestamp_offset = 0;
@@ -428,7 +372,7 @@ static gboolean gst_dvbvideosink_event(GstBaseSink *sink, GstEvent *event)
 		gboolean update;
 		gdouble rate;
 		gint64 start, end, pos;
-		int skip = 0, repeat = 0;
+		int skip = 0;
 		gst_event_parse_new_segment(event, &update, &rate, &format, &start, &end, &pos);
 		GST_DEBUG_OBJECT(self, "GST_EVENT_NEWSEGMENT rate=%f\n", rate);
 		if (format == GST_FORMAT_TIME)
@@ -436,16 +380,18 @@ static gboolean gst_dvbvideosink_event(GstBaseSink *sink, GstEvent *event)
 			self->timestamp_offset = start - pos;
 			if (rate != self->rate)
 			{
+				skip = (int)rate;
+				
 				if (rate > 1.0)
-				{
-					skip = (int)rate;
-				}
-				else if (rate < 1.0)
-				{
-					repeat = 1.0 / rate;
-				}
-				ioctl(self->fd, VIDEO_SLOWMOTION, repeat);
-				ioctl(self->fd, VIDEO_FAST_FORWARD, skip);
+					ioctl(self->fd, VIDEO_FFW, skip);
+		
+				else if (rate < 1.0)					
+					ioctl(self->fd, VIDEO_FBW, skip);										
+					
+				else										
+					ioctl(self->fd, VIDEO_FFW, skip);	
+					
+					
 				self->rate = rate;
 			}
 		}
@@ -612,68 +558,11 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 	size_t payload_len = 0;
 	GstBuffer *tmpbuf = NULL;
 
-#ifdef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
-	gboolean commit_prev_frame_data = FALSE, cache_prev_frame = FALSE;
-#endif
-
+	
 	if (self->fd < 0) return GST_FLOW_OK;
 
-#ifdef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
-	if (self->must_pack_bitstream)
-	{
-		cache_prev_frame = TRUE;
-		unsigned int pos = 0;
-		while (pos < data_len)
-		{
-			if (memcmp(&data[pos], "\x00\x00\x01", 3))
-			{
-				pos++;
-				continue;
-			}
-			pos += 3;
-			if ((data[pos++] & 0xF0) == 0x20)
-			{ // we need time_inc_res
-				gboolean low_delay=FALSE;
-				unsigned int ver_id = 1, shape=0, time_inc_res=0, tmp=0;
-				struct bitstream bit;
-				bitstream_init(&bit, data+pos, 0);
-				bitstream_get(&bit, 9);
-				if (bitstream_get(&bit, 1))
-				{
-					ver_id = bitstream_get(&bit, 4); // ver_id
-					bitstream_get(&bit, 3);
-				}
-				if ((tmp = bitstream_get(&bit, 4)) == 15)
-				{ // Custom Aspect Ration
-					bitstream_get(&bit, 8); // skip AR width
-					bitstream_get(&bit, 8); // skip AR height
-				}
-				if (bitstream_get(&bit, 1))
-				{
-					bitstream_get(&bit, 2);
-					low_delay = bitstream_get(&bit, 1) ? TRUE : FALSE;
-					if (bitstream_get(&bit, 1))
-					{
-						bitstream_get(&bit, 32);
-						bitstream_get(&bit, 32);
-						bitstream_get(&bit, 15);
-					}
-				}
-				shape = bitstream_get(&bit, 2);
-				if (ver_id != 1 && shape == 3 /* Grayscale */) bitstream_get(&bit, 4);
-				bitstream_get(&bit, 1);
-				time_inc_res = bitstream_get(&bit, 16);
-				self->time_inc_bits = 0;
-				while (time_inc_res)
-				{ // count bits
-					++self->time_inc_bits;
-					time_inc_res >>= 1;
-				}
-			}
-		}
-	}
-
-	if (self->must_pack_bitstream)
+	
+	if (self->check_if_packed_bitstream)
 	{
 		int tmp1, tmp2;
 		unsigned char c1, c2;
@@ -689,14 +578,16 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 			if (data_len - pos < 13) break;
 			if (sscanf((char*)data+pos, "DivX%d%c%d%cp", &tmp1, &c1, &tmp2, &c2) == 4 && (c1 == 'b' || c1 == 'B') && (c2 == 'p' || c2 == 'P')) 
 			{
-				GST_INFO_OBJECT (self, "%s seen... already packed!", (char*)data+pos);
-				self->must_pack_bitstream = FALSE;
+				GST_INFO_OBJECT (self, "%s stream packed!", (char*)data+pos);
+				ioctl(self->fd,	VIDEO_MPEG4_PACKED);	
 				break;
 			}
 		}
+		
+		self->check_if_packed_bitstream = FALSE;
 	}
-#endif
-
+	
+	
 	pes_header[0] = 0;
 	pes_header[1] = 0;
 	pes_header[2] = 1;
@@ -723,23 +614,18 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 		pes_set_pts(GST_BUFFER_TIMESTAMP(buffer), pes_header);
 
 		if (self->codec_data)
-		{
+		{			
 			if (self->must_send_header)
 			{
-				if (self->codec_type != CT_MPEG1 && self->codec_type != CT_MPEG2 && (self->codec_type != CT_DIVX4 || data[3] == 0x00))
+				if (self->codec_type == CT_H264 || self->codec_type == CT_VC1)
 				{
-					if (self->codec_type == CT_DIVX311)
-					{
-						video_write(sink, self, self->codec_data, 0, GST_BUFFER_SIZE(self->codec_data));
-					}
-					else
-					{
-						size_t codec_data_len = GST_BUFFER_SIZE(self->codec_data);
-						memcpy(pes_header + pes_header_len, GST_BUFFER_DATA(self->codec_data), codec_data_len);
-						pes_header_len += codec_data_len;
-					}
-					self->must_send_header = FALSE;
+					size_t codec_data_len = GST_BUFFER_SIZE(self->codec_data);
+					memcpy(pes_header + pes_header_len, GST_BUFFER_DATA(self->codec_data), codec_data_len);
+					pes_header_len += codec_data_len;
 				}
+				
+				self->must_send_header = FALSE;
+				
 			}
 			if (self->codec_type == CT_H264)
 			{
@@ -790,227 +676,13 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 					data = dest;
 					data_len = dest_pos;
 				}
-			}
-			else if (self->codec_type == CT_MPEG4_PART2)
-			{
-				if (memcmp(data, "\x00\x00\x01", 3))
-				{
-					memcpy(pes_header + pes_header_len, "\x00\x00\x01", 3);
-					pes_header_len += 3;
-				}
-			}
-			else if (self->codec_type == CT_DIVX311)
-			{
-				if (memcmp(data, "\x00\x00\x01\xb6", 4))
-				{
-					memcpy(pes_header + pes_header_len, "\x00\x00\x01\xb6", 4);
-					pes_header_len += 4;
-				}
-			}
+			}				
 		}
 	}
-
-#ifdef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
-	if (self->must_pack_bitstream)
-	{
-		unsigned int pos = 0;
-		gboolean i_frame = FALSE;
-		while (pos < data_len)
-		{
-			if (memcmp(&data[pos], "\x00\x00\x01\xb6", 4))
-			{
-				pos++;
-				continue;
-			}
-			pos += 4;
-			switch ((data[pos] & 0xC0) >> 6)
-			{
-				case 0: // I-Frame
-					cache_prev_frame = FALSE;
-					i_frame = TRUE;
-				case 1: // P-Frame
-					if (self->prev_frame != buffer)
-					{
-						struct bitstream bit;
-						gboolean store_frame=FALSE;
-						if (self->prev_frame)
-						{
-							if (!self->num_non_keyframes)
-							{
-								GstFlowReturn ret = gst_dvbvideosink_render(sink, self->prev_frame);
-								gst_buffer_unref(self->prev_frame);
-								self->prev_frame = NULL;
-								if (ret != GST_FLOW_OK)
-									return ret;
-								store_frame = TRUE;
-							}
-							else
-							{
-								pes_header[pes_header_len++] = 0;
-								pes_header[pes_header_len++] = 0;
-								pes_header[pes_header_len++] = 1;
-								pes_header[pes_header_len++] = 0xB6;
-								bitstream_init(&bit, pes_header+pes_header_len, 1);
-								bitstream_put(&bit, 1, 2);
-								bitstream_put(&bit, 0, 1);
-								bitstream_put(&bit, 1, 1);
-								bitstream_put(&bit, self->time_inc, self->time_inc_bits);
-								bitstream_put(&bit, 1, 1);
-								bitstream_put(&bit, 0, 1);
-								bitstream_put(&bit, 0x7F >> bit.avail, 8 - bit.avail);
-								data_len = 0;
-								pes_header_len += bit.data - (pes_header+pes_header_len);
-								cache_prev_frame = TRUE;
-							}
-						}
-						else if (!i_frame)
-						{
-							store_frame = TRUE;
-						}
-
-						self->num_non_keyframes=0;
-
-						// extract time_inc
-						bitstream_init(&bit, data+pos, 0);
-						bitstream_get(&bit, 2); // skip coding_type
-						while (bitstream_get(&bit, 1));
-						bitstream_get(&bit, 1);
-						self->time_inc = bitstream_get(&bit, self->time_inc_bits);
-
-						if (store_frame)
-						{
-							self->prev_frame = buffer;
-							gst_buffer_ref(buffer);
-							return GST_FLOW_OK;
-						}
-					}
-					else
-					{
-						cache_prev_frame = FALSE;
-					}
-					break;
-				case 3: // S-Frame
-				case 2: // B-Frame
-					if (++self->num_non_keyframes == 1 && self->prev_frame)
-					{
-						commit_prev_frame_data = TRUE;
-					}
-					break;
-				case 4: // N-Frame
-				default:
-					g_warning("unhandled divx5/xvid frame type %d\n", (data[pos] & 0xC0) >> 6);
-					break;
-			}
-		}
-	}
-#endif
 
 	payload_len = data_len + pes_header_len - 6;
 
-#ifdef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
-	if (self->prev_frame && self->prev_frame != buffer)
-	{
-		pes_set_pts(GST_BUFFER_TIMESTAMP(self->prev_frame), pes_header);
-	}
-
-	if (commit_prev_frame_data)
-	{
-		payload_len += GST_BUFFER_SIZE(self->prev_frame);
-	}
-#endif
-
-	if (self->codec_type == CT_MPEG2 || self->codec_type == CT_MPEG1)
-	{
-		if (!self->codec_data && data_len > 3 && !memcmp(data, "\x00\x00\x01\xb3", 4))
-		{
-			gboolean ok = TRUE;
-			unsigned int pos = 4;
-			unsigned int sheader_data_len = 0;
-			while (pos < data_len && ok)
-			{
-				if (pos >= data_len) break;
-				pos += 7;
-				if (pos >=data_len) break;
-				sheader_data_len = 12;
-				if (data[pos] & 2)
-				{ // intra matrix
-					pos += 64;
-					if (pos >=data_len) break;
-					sheader_data_len += 64;
-				}
-				if (data[pos] & 1)
-				{ // non intra matrix
-					pos += 64;
-					if (pos >=data_len) break;
-					sheader_data_len += 64;
-				}
-				pos += 1;
-				if (pos + 3 >=data_len) break;
-				if (!memcmp(&data[pos], "\x00\x00\x01\xb5", 4))
-				{
-					// extended start code
-					pos += 3;
-					sheader_data_len += 3;
-					do
-					{
-						pos += 1;
-						++sheader_data_len;
-						if (pos + 2 > data_len)
-						{
-							ok = FALSE;
-							break;
-						}
-					} while (memcmp(&data[pos], "\x00\x00\x01", 3));
-					if (!ok) break;
-				}
-				if (pos + 3 >= data_len) break;
-				if (!memcmp(&data[pos], "\x00\x00\x01\xb2", 4))
-				{
-					// private data
-					pos += 3;
-					sheader_data_len += 3;
-					do
-					{
-						pos += 1;
-						++sheader_data_len;
-						if (pos + 2 > data_len)
-						{
-							ok = FALSE;
-							break;
-						}
-					} while (memcmp(&data[pos], "\x00\x00\x01", 3));
-					if (!ok) break;
-				}
-				self->codec_data = gst_buffer_new_and_alloc(sheader_data_len);
-				memcpy(GST_BUFFER_DATA(self->codec_data), data + pos - sheader_data_len, sheader_data_len);
-				self->must_send_header = FALSE;
-				break;
-			}
-		}
-		else if (self->codec_data && self->must_send_header)
-		{
-			unsigned int codec_data_len = GST_BUFFER_SIZE(self->codec_data);
-			int pos = 0;
-			while (pos < data_len)
-			{
-				if (memcmp(&data[pos], "\x00\x00\x01\xb8", 4)) /* find group start code */
-				{
-					pos++;
-					continue;
-				}
-				pos -= 4; /* beginning of group start code */
-				payload_len += codec_data_len;
-				pes_set_payload_size(payload_len, pes_header);
-				if (video_write(sink, self, self->pesheader_buffer, 0, pes_header_len) < 0) goto error;
-				if (video_write(sink, self, buffer, data - GST_BUFFER_DATA(buffer), (data - GST_BUFFER_DATA(buffer)) + pos) < 0) goto error;
-				if (video_write(sink, self, self->codec_data, 0, codec_data_len) < 0) goto error;
-				if (video_write(sink, self, buffer, data - GST_BUFFER_DATA(buffer) + pos, (data - GST_BUFFER_DATA(buffer)) + data_len) < 0) goto error;
-				self->must_send_header = FALSE;
-				return GST_FLOW_OK;
-			}
-		}
-	}
-	else if (self->codec_type == CT_VC1 || self->codec_type == CT_VC1_SM)
+	if (self->codec_type == CT_VC1 || self->codec_type == CT_VC1_SM)
 	{
 		memcpy(pes_header + pes_header_len, "\x00\x00\x01\x0d", 4);
 		pes_header_len += 4;
@@ -1021,24 +693,6 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 
 	if (video_write(sink, self, self->pesheader_buffer, 0, pes_header_len) < 0) goto error;
 
-#ifdef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
-	if (commit_prev_frame_data)
-	{
-		if (video_write(sink, self, self->prev_frame, 0, GST_BUFFER_SIZE (self->prev_frame)) < 0) goto error;
-	}
-
-	if (self->prev_frame && self->prev_frame != buffer)
-	{
-		gst_buffer_unref(self->prev_frame);
-		self->prev_frame = NULL;
-	}
-
-	if (cache_prev_frame)
-	{
-		gst_buffer_ref(buffer);
-		self->prev_frame = buffer;
-	}
-#endif
 	if (video_write(sink, self, buffer, data - GST_BUFFER_DATA(buffer), (data - GST_BUFFER_DATA(buffer)) + data_len) < 0) goto error;
 
 	if (GST_BUFFER_TIMESTAMP(buffer) != GST_CLOCK_TIME_NONE)
@@ -1053,13 +707,6 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 	}
 	return GST_FLOW_OK;
 error:
-#ifdef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
-	if (self->prev_frame && self->prev_frame != buffer)
-	{
-		gst_buffer_unref(self->prev_frame);
-		self->prev_frame = NULL;
-	}
-#endif
 	if (tmpbuf)
 	{
 		gst_buffer_unref(tmpbuf);
@@ -1103,15 +750,10 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 				GST_INFO_OBJECT (self, "MIMETYPE video/mpeg2 -> VIDEO_SET_STREAMTYPE, 0");
 			break;
 			case 4:
-			{
-				const GValue *codec_data = gst_structure_get_value(structure, "codec_data");
-				if (codec_data)
-				{
-					GST_INFO_OBJECT (self, "MPEG4 have codec data");
-					self->codec_data = gst_value_get_buffer(codec_data);
-					self->codec_type = CT_MPEG4_PART2;
-					gst_buffer_ref (self->codec_data);
-				}
+			{			
+				self->codec_type = CT_MPEG4_PART2;	
+				self->check_if_packed_bitstream = TRUE;
+				
 				streamtype = 4;
 				GST_INFO_OBJECT (self, "MIMETYPE video/mpeg4 -> VIDEO_SET_STREAMTYPE, 4");
 			}
@@ -1123,14 +765,10 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 	}
 	else if (!strcmp (mimetype, "video/x-3ivx"))
 	{
-		const GValue *codec_data = gst_structure_get_value(structure, "codec_data");
-		if (codec_data)
-		{
-			GST_INFO_OBJECT (self, "have 3ivx codec... handle as CT_MPEG4_PART2");
-			self->codec_data = gst_value_get_buffer(codec_data);
-			self->codec_type = CT_MPEG4_PART2;
-			gst_buffer_ref (self->codec_data);
-		}
+	
+		self->codec_type = CT_MPEG4_PART2;		
+		self->check_if_packed_bitstream = TRUE;
+		
 		streamtype = 4;
 		GST_INFO_OBJECT (self, "MIMETYPE video/x-3ivx -> VIDEO_SET_STREAMTYPE, 4");
 	}
@@ -1158,25 +796,7 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 					const char *profile_str[] = { "baseline", "main", "extended", "high" };
 					memcpy(tmp, "\x00\x00\x00\x01", 4);
 					tmp_len += 4;
-					memcpy(tmp + tmp_len, data + 8, len);
-					for (i = 0; i < 4; ++i)
-					{
-						profile_cmp[1] = profile_num[i];
-						if (!memcmp(tmp+tmp_len, profile_cmp, 2))
-						{
-							uint8_t level_org = tmp[tmp_len + 3];
-							if (level_org > 0x29)
-							{
-								GST_INFO_OBJECT (self, "H264 %s profile@%d.%d patched down to 4.1!", profile_str[i], level_org / 10 , level_org % 10);
-								tmp[tmp_len+3] = 0x29; // level 4.1
-							}
-							else
-							{
-								GST_INFO_OBJECT (self, "H264 %s profile@%d.%d", profile_str[i], level_org / 10 , level_org % 10);
-							}
-							break;
-						}
-					}
+					memcpy(tmp + tmp_len, data + 8, len);			
 					tmp_len += len;
 					cd_pos = 8 + len;
 					if (cd_len > (cd_pos + 2))
@@ -1230,10 +850,9 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 	}
 	else if (!strcmp (mimetype, "video/x-xvid"))
 	{
+		self->check_if_packed_bitstream = TRUE;
+		
 		streamtype = 10;
-#ifdef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
-		self->must_pack_bitstream = TRUE;
-#endif
 		GST_INFO_OBJECT (self, "MIMETYPE video/x-xvid -> VIDEO_SET_STREAMTYPE, 10");
 	}
 	else if (!strcmp (mimetype, "video/x-divx") || !strcmp (mimetype, "video/x-msmpeg"))
@@ -1248,56 +867,37 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 			case 3:
 			case 43:
 			{
-				#define B_GET_BITS(w,e,b)  (((w)>>(b))&(((unsigned)(-1))>>((sizeof(unsigned))*8-(e+1-b))))
-				#define B_SET_BITS(name,v,e,b)  (((unsigned)(v))<<(b))
-				static const guint8 brcm_divx311_sequence_header[] =
-				{
-					0x00, 0x00, 0x01, 0xE0, 0x00, 0x34, 0x80, 0x80, // PES HEADER
-					0x05, 0x2F, 0xFF, 0xFF, 0xFF, 0xFF, 
-					0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x20, /* 0 .. 7 */
-					0x08, 0xC8, 0x0D, 0x40, 0x00, 0x53, 0x88, 0x40, /* 8 .. 15 */
-					0x0C, 0x40, 0x01, 0x90, 0x00, 0x97, 0x53, 0x0A, /* 16 .. 24 */
-					0x00, 0x00, 0x00, 0x00,
-					0x30, 0x7F, 0x00, 0x00, 0x01, 0xB2, 0x44, 0x69, /* 0 .. 7 */
-					0x76, 0x58, 0x33, 0x31, 0x31, 0x41, 0x4E, 0x44  /* 8 .. 15 */
-				};
-				self->codec_data = gst_buffer_new_and_alloc(63);
-				guint8 *data = GST_BUFFER_DATA(self->codec_data);
-				gint height, width;
-				gst_structure_get_int (structure, "height", &height);
-				gst_structure_get_int (structure, "width", &width);
-				memcpy(data, brcm_divx311_sequence_header, 63);
-				data += 38;
-				data[0] = B_GET_BITS(width,11,4);
-				data[1] = B_SET_BITS("width [3..0]", B_GET_BITS(width,3,0), 7, 4) |
-					B_SET_BITS("'10'", 0x02, 3, 2) |
-					B_SET_BITS("height [11..10]", B_GET_BITS(height,11,10), 1, 0);
-				data[2] = B_GET_BITS(height,9,2);
-				data[3]= B_SET_BITS("height [1.0]", B_GET_BITS(height,1,0), 7, 6) |
-					B_SET_BITS("'100000'", 0x20, 5, 0);
-				streamtype = 13;
-				self->codec_type = CT_DIVX311;
-				GST_INFO_OBJECT (self, "MIMETYPE video/x-divx vers. 3 -> VIDEO_SET_STREAMTYPE, 13");
+					gint height, width;
+					guint divxdata = 0;
+					gst_structure_get_int (structure, "height", &height);
+					gst_structure_get_int (structure, "width", &width);
+	
+					divxdata = ((width & 0xffff) << 16) | (height & 0xffff);
+				
+					ioctl(self->fd, VIDEO_DIVX, divxdata);
+				
+					streamtype = 13;
+					self->codec_type = CT_DIVX311;
+					GST_INFO_OBJECT (self, "MIMETYPE video/x-divx vers. 3 -> VIDEO_SET_STREAMTYPE, 13");
 			}
 			break;
 			case 4:
-				streamtype = 14;
-				self->codec_type = CT_DIVX4;
-				self->codec_data = gst_buffer_new_and_alloc(12);
-				guint8 *data = GST_BUFFER_DATA(self->codec_data);
-				memcpy(data, "\x00\x00\x01\xb2\x44\x69\x76\x58\x34\x41\x4e\x44", 12);
-				GST_INFO_OBJECT (self, "MIMETYPE video/x-divx vers. 4 -> VIDEO_SET_STREAMTYPE, 14");
+			
+					self->check_if_packed_bitstream = TRUE;
+				
+					streamtype = 14;
+					self->codec_type = CT_DIVX4;				
+					GST_INFO_OBJECT (self, "MIMETYPE video/x-divx vers. 4 -> VIDEO_SET_STREAMTYPE, 14");
 			break;
 			case 6:
 			case 5:
-				streamtype = 15;
-#ifdef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
-				self->must_pack_bitstream = TRUE;
-#endif
-				GST_INFO_OBJECT (self, "MIMETYPE video/x-divx vers. 5 -> VIDEO_SET_STREAMTYPE, 15");
+					self->check_if_packed_bitstream = TRUE;
+				
+					streamtype = 15;
+					GST_INFO_OBJECT (self, "MIMETYPE video/x-divx vers. 5 -> VIDEO_SET_STREAMTYPE, 15");
 			break;
 			default:
-				GST_ELEMENT_ERROR (self, STREAM, FORMAT, (NULL), ("unhandled divx version %i", divxversion));
+					GST_ELEMENT_ERROR (self, STREAM, FORMAT, (NULL), ("unhandled divx version %i", divxversion));
 			break;
 		}
 	}
@@ -1358,17 +958,10 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 			{
 				const GValue *codec_data = gst_structure_get_value(structure, "codec_data");
 				if (codec_data)
-				{
-					guint8 *data;
-					video_codec_data_t videocodecdata;
+				{				
 					gint codec_size = GST_BUFFER_SIZE(gst_value_get_buffer(codec_data));
-					videocodecdata.length = 8 + codec_size;
-					data = videocodecdata.data = (guint8*)g_malloc(videocodecdata.length);
-					memset(data, 0, videocodecdata.length);
-					data += 8;
-					memcpy(data, GST_BUFFER_DATA(gst_value_get_buffer(codec_data)), codec_size);
-					ioctl(self->fd, VIDEO_SET_CODEC_DATA, &videocodecdata);
-					g_free(videocodecdata.data);
+					self->codec_data = gst_buffer_new_and_alloc(codec_size);
+					memcpy(GST_BUFFER_DATA(self->codec_data), GST_BUFFER_DATA(gst_value_get_buffer(codec_data)), codec_size);												
 				}
 			}
 			else if (self->codec_type == CT_VC1_SM)
@@ -1459,15 +1052,12 @@ static gboolean gst_dvbvideosink_stop(GstBaseSink *basesink)
 	{
 		if (self->playing)
 		{
-			ioctl(self->fd, VIDEO_STOP);
+			ioctl(self->fd, VIDEO_STC_STOP);
 			self->playing = FALSE;
 		}
-		if (self->rate != 1.0)
-		{
-			ioctl(self->fd, VIDEO_SLOWMOTION, 0);
-			ioctl(self->fd, VIDEO_FAST_FORWARD, 0);
-			self->rate = 1.0;
-		}
+	
+		self->rate = 1.0;
+		
 		ioctl(self->fd, VIDEO_SELECT_SOURCE, VIDEO_SOURCE_DEMUX);
 		close(self->fd);
 		self->fd = -1;
@@ -1484,14 +1074,6 @@ static gboolean gst_dvbvideosink_stop(GstBaseSink *basesink)
 		gst_buffer_unref(self->pesheader_buffer);
 		self->pesheader_buffer = NULL;
 	}
-
-#ifdef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
-	if (self->prev_frame)
-	{
-		gst_buffer_unref(self->prev_frame);
-		self->prev_frame = NULL;
-	}
-#endif
 
 	while (self->queue)
 	{
@@ -1536,12 +1118,13 @@ static GstStateChangeReturn gst_dvbvideosink_change_state(GstElement *element, G
 		if (self->fd >= 0)
 		{
 			ioctl(self->fd, VIDEO_SELECT_SOURCE, VIDEO_SOURCE_MEMORY);
-			ioctl(self->fd, VIDEO_FREEZE);
+			ioctl(self->fd,	VIDEO_RESET_STC);	
+			
 		}
 		break;
 	case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
 		GST_DEBUG_OBJECT (self,"GST_STATE_CHANGE_PAUSED_TO_PLAYING");
-		if (self->fd >= 0) ioctl(self->fd, VIDEO_CONTINUE);
+		if (self->fd >= 0) ioctl(self->fd, VIDEO_STC_PLAY); 
 		self->paused = FALSE;
 		break;
 	default:
@@ -1555,7 +1138,7 @@ static GstStateChangeReturn gst_dvbvideosink_change_state(GstElement *element, G
 	case GST_STATE_CHANGE_PLAYING_TO_PAUSED:
 		GST_DEBUG_OBJECT (self,"GST_STATE_CHANGE_PLAYING_TO_PAUSED");
 		self->paused = TRUE;
-		if (self->fd >= 0) ioctl(self->fd, VIDEO_FREEZE);
+		if (self->fd >= 0) ioctl(self->fd, VIDEO_STC_STOP); 
 		/* wakeup the poll */
 		write(self->unlockfd[1], "\x01", 1);
 		break;

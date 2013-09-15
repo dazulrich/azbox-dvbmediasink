@@ -87,6 +87,7 @@
 #define AUDIO_STC_STOP					_IO('o', 32)
 #define AUDIO_FFW						_IO('o', 33)
 #define AUDIO_FBW						_IO('o', 34)
+#define AUDIO_SET_CODEC_DATA 			_IO('o', 35)
 
 
 GST_DEBUG_CATEGORY_STATIC(dvbaudiosink_debug);
@@ -511,11 +512,10 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		bypass = (wmaversion > 2) ? 0x21 : 0x20;
 		if (codec_data)
 		{
-			guint8 *data;
+			guint8 *data, *tdata;
 			gint codecid = 0x160 + wmaversion - 1;
 			gint codec_data_size = GST_BUFFER_SIZE(gst_value_get_buffer(codec_data));
-			self->codec_data = gst_buffer_new_and_alloc(18 + codec_data_size);
-			data = GST_BUFFER_DATA(self->codec_data);
+			tdata = data = (guint8*)g_malloc(18 + codec_data_size);			
 			/* codec tag */
 			*(data++) = codecid & 0xff;
 			*(data++) = (codecid >> 8) & 0xff;
@@ -543,22 +543,22 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 			*(data++) = GST_BUFFER_SIZE(gst_value_get_buffer(codec_data)) & 0xff;
 			*(data++) = (GST_BUFFER_SIZE(gst_value_get_buffer(codec_data)) >> 8) & 0xff;
 			memcpy(data, GST_BUFFER_DATA(gst_value_get_buffer(codec_data)), codec_data_size);
+			ioctl(self->fd, AUDIO_SET_CODEC_DATA, tdata);
+			g_free(tdata);
 		}
 	}
 	else if (!strcmp(type, "audio/x-raw-int"))
 	{
-		guint8 *data;
+		guint8 *data, *tdata;
 		gint format = 0x01;
 		gint width, depth, rate, channels, block_align, byterate;
-		self->codec_data = gst_buffer_new_and_alloc(18);
-		data = GST_BUFFER_DATA(self->codec_data);
+		tdata = data = (guint8*)g_malloc(18);
 		gst_structure_get_int(structure, "width", &width);
 		gst_structure_get_int(structure, "depth", &depth);
 		gst_structure_get_int(structure, "rate", &rate);
 		gst_structure_get_int(structure, "channels", &channels);
 		byterate = channels * rate * width / 8;
 		block_align = channels * width / 8;
-		memset(data, 0, GST_BUFFER_SIZE(self->codec_data));
 		/* format tag */
 		*(data++) = format & 0xff;
 		*(data++) = (format >> 8) & 0xff;
@@ -585,6 +585,8 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		self->fixed_buffersize *= channels * depth / 8;
 		self->fixed_buffertimestamp = GST_CLOCK_TIME_NONE;
 		self->fixed_bufferduration = GST_SECOND * (GstClockTime)self->fixed_buffersize / (GstClockTime)byterate;
+		ioctl(self->fd, AUDIO_SET_CODEC_DATA, tdata);
+		g_free(tdata);
 		GST_INFO_OBJECT(self, "MIMETYPE %s", type);
 		bypass = 0x30;
 	}
@@ -836,6 +838,9 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 	unsigned char *data = GST_BUFFER_DATA(buffer);
 	GstClockTime timestamp = self->timestamp;
 	GstClockTime duration = GST_BUFFER_DURATION(buffer);
+	
+	
+	
 	/* 
 	 * Some audioformats have incorrect timestamps, 
 	 * so if we have both a timestamp and a duration, 
@@ -923,32 +928,6 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 		 */
 		pes_header[pes_header_len++] = 0xa0;
 		pes_header[pes_header_len++] = 0x01;
-	}
-	else if (self->bypass == 0x20 || self->bypass == 0x21)
-	{
-		if (self->codec_data)
-		{
-			size_t payload_len = size;
-			pes_header[pes_header_len++] = (payload_len >> 24) & 0xff;
-			pes_header[pes_header_len++] = (payload_len >> 16) & 0xff;
-			pes_header[pes_header_len++] = (payload_len >> 8) & 0xff;
-			pes_header[pes_header_len++] = payload_len & 0xff;
-			memcpy(&pes_header[pes_header_len], GST_BUFFER_DATA(self->codec_data), GST_BUFFER_SIZE(self->codec_data));
-			pes_header_len += GST_BUFFER_SIZE(self->codec_data);
-		}
-	}
-	else if (self->bypass == 0x30)
-	{
-		if (self->codec_data && GST_BUFFER_SIZE(self->codec_data) >= 18)
-		{
-			size_t payload_len = size;
-			pes_header[pes_header_len++] = (payload_len >> 24) & 0xff;
-			pes_header[pes_header_len++] = (payload_len >> 16) & 0xff;
-			pes_header[pes_header_len++] = (payload_len >> 8) & 0xff;
-			pes_header[pes_header_len++] = payload_len & 0xff;
-			memcpy(&pes_header[pes_header_len], GST_BUFFER_DATA(self->codec_data), GST_BUFFER_SIZE(self->codec_data));
-			pes_header_len += GST_BUFFER_SIZE(self->codec_data);
-		}
 	}
 
 	pes_set_payload_size(size + pes_header_len - 6, pes_header);

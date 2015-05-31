@@ -169,10 +169,14 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 #define XRAW "audio/x-raw"
 #define PCMCAPS \
 		"audio/x-raw, " \
-		"format = (string) { "GST_AUDIO_NE(S32)", "GST_AUDIO_NE(S24)", "GST_AUDIO_NE(S16)", S8, "GST_AUDIO_NE(U32)", "GST_AUDIO_NE(U24)", "GST_AUDIO_NE(U16)", U8 }, " \
-		"layout = (string) { interleaved, non-interleaved }, " \
 		"rate = (int) [ 1, 48000 ], " "channels = (int) [ 1, 2 ]; "
 #endif
+
+/* removed for testing.. 
+		"format = (string) { "GST_AUDIO_NE(S32)", "GST_AUDIO_NE(S24)", "GST_AUDIO_NE(S16)", S8, "GST_AUDIO_NE(U32)", "GST_AUDIO_NE(U24)", "GST_AUDIO_NE(U16)", U8 }, " \
+		"layout = (string) { interleaved, non-interleaved }, " \
+*/
+		
 		
 static GstStaticPadTemplate sink_factory =
 GST_STATIC_PAD_TEMPLATE(

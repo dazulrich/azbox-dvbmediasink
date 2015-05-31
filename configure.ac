@@ -52,7 +52,7 @@ PKG_CHECK_MODULES(GST, \
 
 dnl Give error and exit if we don't have gstreamer
 if test "x$HAVE_GST" = "xno"; then
-  AC_MSG_ERROR(you need gstreamer development packages installed !)
+  AC_MSG_ERROR(you need gstreamer development packages installed ! (gstreamer-base-$GST_MAJORMINOR))
 fi
 
 dnl append GST_ERROR cflags to GST_CFLAGS

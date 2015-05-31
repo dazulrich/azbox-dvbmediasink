@@ -418,6 +418,7 @@ static gboolean gst_dvbvideosink_event(GstBaseSink *sink, GstEvent *event)
 		GstFormat format;
 		gdouble rate;
 		guint64 start, end, pos;
+		int skip = 0;
 		gst_event_parse_segment(event, &segment);
 		format = segment->format;
 		rate = segment->rate;

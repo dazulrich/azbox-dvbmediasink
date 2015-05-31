@@ -248,7 +248,7 @@ static void gst_dvbaudiosink_class_init(GstDVBAudioSinkClass *self)
 {
 	GObjectClass *gobject_class = G_OBJECT_CLASS(self);
 	GstBaseSinkClass *gstbasesink_class = GST_BASE_SINK_CLASS(self);
-	GstElementClass *gelement_class = GST_ELEMENT_CLASS(self);
+	GstElementClass *element_class = GST_ELEMENT_CLASS(self);
 
 #if GST_VERSION_MAJOR >= 1
 	parent_class = g_type_class_peek_parent(self);
@@ -827,6 +827,7 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 		GstFormat format;
 		gdouble rate;
 		guint64 start, end, pos;
+		int skip = 0;
 		gst_event_parse_segment(event, &segment);
 		format = segment->format;
 		rate = segment->rate;

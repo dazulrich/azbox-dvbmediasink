@@ -1127,13 +1127,13 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		{
 			streamtype = 3;
 			self->codec_type = CT_VC1;
-			GST_INFO_OBJECT (self, "MIMETYPE video/x-wmv %s -> STREAMTYPE_VC1", value);
+			GST_INFO_OBJECT (self, "MIMETYPE video/x-wmv %s -> VIDEO_SET_STREAMTYPE, 3");
 		}
 		else
 		{
 			streamtype = 5;
 			self->codec_type = CT_VC1_SM;
-			GST_INFO_OBJECT (self, "MIMETYPE video/x-wmv %s -> STREAMTYPE_VC1_SM", value);
+			GST_INFO_OBJECT (self, "MIMETYPE video/x-wmv %s -> VIDEO_SET_STREAMTYPE, 5");
 		}
 	}
 

@@ -6,8 +6,8 @@ AC_ARG_WITH(gstversion,
 	[GST_MAJORMINOR=$withval],[GST_MAJORMINOR=1.0])
 
 	
-GST_REQUIRED=${GST_VERSION}
-GSTPB_REQUIRED=${GST_VERSION}
+GST_REQUIRED=1.0
+GSTPB_REQUIRED=1.0
 
 dnl fill in your package name and version here
 dnl the fourth (nano) number should be 0 for a release, 1 for CVS,

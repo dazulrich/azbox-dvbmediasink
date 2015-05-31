@@ -274,7 +274,6 @@ static void gst_dvbvideosink_init (GstDVBVideoSink *self)
 	self->pesheader_buffer = NULL;
 	self->codec_data = NULL;
 	self->codec_type = CT_H264;
-	self->stream_type = STREAMTYPE_UNKNOWN;
 #if GST_VERSION_MAJOR >= 1
 	self->use_dts = FALSE;
 #endif
@@ -879,7 +878,7 @@ error:
 		GST_ELEMENT_ERROR(self, RESOURCE, READ, (NULL),
 				("video write: %s", g_strerror (errno)));
 		GST_WARNING_OBJECT (self, "Video write error");
-		return ret == GST_FLOW_OK ? GST_FLOW_ERROR : ret;
+		return GST_FLOW_ERROR;
 	}
 }
 

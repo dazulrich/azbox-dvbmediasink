@@ -1525,9 +1525,6 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 				self->use_dts = TRUE;
 #endif
 				GST_INFO_OBJECT (self, "MIMETYPE video/x-divx vers. 3 -> STREAMTYPE_DIVX311");
-#if GST_VERSION_MAJOR >= 1
-				gst_buffer_unmap(self->codec_data, &map);
-#endif
 			}
 			break;
 			case 4:

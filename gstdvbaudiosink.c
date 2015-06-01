@@ -77,9 +77,11 @@
 
 #if GST_VERSION_MAJOR < 1
 #include <gst/gst.h>
+#include <gst/audio/audio.h>
 #include <gst/base/gstbasesink.h>
 #else
 #include <gstreamer-1.0/gst/gst.h>
+#include <gstreamer-1.0/gst/audio/audio.h>
 #include <gstreamer-1.0/gst/base/gstbasesink.h>
 #endif
 
@@ -109,20 +111,32 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 #ifdef HAVE_MP3
 #define MPEGCAPS \
 		"audio/mpeg, " \
+		"mpegversion = (int) 1, " \
+		"layer = (int) [ 1, 3 ], " \
+		"parsed = (boolean) true; " \
+		"audio/mpeg, " \
+		"mpegversion = (int) { 2, 4 }, " \
 		"profile = (string) lc, " \
-		"framed =(boolean) true; "
+		"stream-format = (string) { raw, adts, adif, loas }, " \
+		"framed = (boolean) true; "
 #else
 #define MPEGCAPS \
 		"audio/mpeg, " \
 		"mpegversion = (int) 1, " \
 		"layer = (int) [ 1, 2 ], " \
-		"framed =(boolean) true; "
+		"parsed = (boolean) true; "
 #endif
 
 #define AC3CAPS \
 		"audio/x-ac3, " \
 		"framed =(boolean) true; " \
 		"audio/x-private1-ac3, " \
+		"framed =(boolean) true; "
+
+#define EAC3CAPS \
+		"audio/x-eac3, " \
+		"framed =(boolean) true; " \
+		"audio/x-private1-eac3, " \
 		"framed =(boolean) true; "
 
 #define LPCMCAPS \
@@ -136,8 +150,11 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 		"framed =(boolean) true; "
 
 #define WMACAPS \
-		"audio/x-wma, " \
-		"framed =(boolean) true; "
+		"audio/x-wma; " \
+
+#define AMRCAPS \
+		"audio/AMR, " \
+		"rate = (int) {8000, 16000}, channels = (int) 1; "
 
 #if GST_VERSION_MAJOR < 1
 #define XRAW "audio/x-raw-int"
@@ -186,6 +203,9 @@ GST_STATIC_PAD_TEMPLATE(
 	GST_STATIC_CAPS(
 		MPEGCAPS 
 		AC3CAPS
+#ifdef HAVE_EAC3
+		EAC3CAPS
+#endif
 #ifdef HAVE_DTS
 		DTSCAPS
 #endif
@@ -194,6 +214,9 @@ GST_STATIC_PAD_TEMPLATE(
 #endif
 #ifdef HAVE_WMA
 		WMACAPS
+#endif
+#ifdef HAVE_AMR
+		AMRCAPS
 #endif
 #ifdef HAVE_PCM
 		PCMCAPS
@@ -260,7 +283,7 @@ static void gst_dvbaudiosink_class_init(GstDVBAudioSinkClass *self)
 		"Outputs PES into a linuxtv dvb audio device",
 		"");
 #endif
-	
+
 	gstbasesink_class->start = GST_DEBUG_FUNCPTR(gst_dvbaudiosink_start);
 	gstbasesink_class->stop = GST_DEBUG_FUNCPTR(gst_dvbaudiosink_stop);
 	gstbasesink_class->render = GST_DEBUG_FUNCPTR(gst_dvbaudiosink_render);
@@ -294,7 +317,7 @@ static void gst_dvbaudiosink_init(GstDVBAudioSink *self)
 #endif
 {
 	self->codec_data = NULL;
-	self->bypass = -1;
+	self->bypass = AUDIOTYPE_UNKNOWN;
 	self->fixed_buffersize = 0;
 	self->fixed_bufferduration = GST_CLOCK_TIME_NONE;
 	self->fixed_buffertimestamp = GST_CLOCK_TIME_NONE;
@@ -330,6 +353,7 @@ static gint64 gst_dvbaudiosink_get_decoder_time(GstDVBAudioSink *self)
 		cur = self->lastpts;
 	}
 	cur *= 11111;
+
 	return cur - self->timestamp_offset;
 }
 
@@ -375,11 +399,17 @@ static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *basesink, GstCaps *filter
 	GstCaps *caps = gst_caps_from_string(
 		MPEGCAPS 
 		AC3CAPS
+#ifdef HAVE_EAC3
+		EAC3CAPS
+#endif
 #ifdef HAVE_LPCM
 		LPCMCAPS
 #endif
 #ifdef HAVE_WMA
 		WMACAPS
+#endif
+#ifdef HAVE_AMR
+		AMRCAPS
 #endif
 #ifdef HAVE_PCM
 		PCMCAPS
@@ -405,7 +435,6 @@ static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *basesink, GstCaps *filter
 		caps = intersection;
 	}
 #endif
-
 	return caps;
 }
 
@@ -414,7 +443,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 	GstDVBAudioSink *self = GST_DVBAUDIOSINK(basesink);
 	GstStructure *structure = gst_caps_get_structure(caps, 0);
 	const char *type = gst_structure_get_name(structure);
-	int bypass = -1;
+	t_audio_type bypass = AUDIOTYPE_UNKNOWN;
 
 	self->skip = 0;
 	self->aac_adts_header_valid = FALSE;
@@ -437,13 +466,13 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 				gst_structure_get_int(structure, "layer", &layer);
 				if (layer == 3)
 				{
-					bypass = 0xa;
+					bypass = AUDIOTYPE_MP3;
 				}
 				else
 				{
-					bypass = 1;
+					bypass = AUDIOTYPE_MPEG;
 				}
-				GST_INFO_OBJECT(self, "MIMETYPE %s version %d layer %d",type,mpegversion,layer);
+				GST_INFO_OBJECT(self, "MIMETYPE %s version %d layer %d", type, mpegversion, layer);
 				break;
 			}
 			case 2:
@@ -526,7 +555,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 						}
 					}
 				}
-				bypass = 0x0b; // always use AAC+ ADTS yet..
+				bypass = AUDIOTYPE_AAC_PLUS; // always use AAC+ ADTS yet..
 				break;
 			}
 			default:
@@ -537,29 +566,40 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 	else if (!strcmp(type, "audio/x-ac3"))
 	{
 		GST_INFO_OBJECT(self, "MIMETYPE %s",type);
-		bypass = 0;
-	}	
+		bypass = AUDIOTYPE_AC3;
+	}
+	else if (!strcmp(type, "audio/x-eac3"))
+	{
+		GST_INFO_OBJECT(self, "MIMETYPE %s",type);
+		bypass = AUDIOTYPE_AC3_PLUS;
+	}
 	else if (!strcmp(type, "audio/x-private1-dts"))
 	{
 		GST_INFO_OBJECT(self, "MIMETYPE %s(DVD Audio - 2 byte skipping)",type);
-		bypass = 2;
+		bypass = AUDIOTYPE_DTS;
 		self->skip = 2;
 	}
 	else if (!strcmp(type, "audio/x-private1-ac3"))
 	{
 		GST_INFO_OBJECT(self, "MIMETYPE %s(DVD Audio - 2 byte skipping)",type);
-		bypass = 0;
+		bypass = AUDIOTYPE_AC3;
+		self->skip = 2;
+	}
+	else if (!strcmp(type, "audio/x-private1-eac3"))
+	{
+		GST_INFO_OBJECT(self, "MIMETYPE %s(DVD Audio - 2 byte skipping)",type);
+		bypass = AUDIOTYPE_AC3_PLUS;
 		self->skip = 2;
 	}
 	else if (!strcmp(type, "audio/x-private1-lpcm"))
-	{	 
+	{
 		GST_INFO_OBJECT(self, "MIMETYPE %s(DVD Audio)",type);
-		bypass = 6;
+		bypass = AUDIOTYPE_LPCM;
 	}
 	else if (!strcmp(type, "audio/x-dts"))
 	{
 		GST_INFO_OBJECT(self, "MIMETYPE %s",type);
-		bypass = 2;
+		bypass = AUDIOTYPE_DTS;
 	}
 	else if (!strcmp(type, "audio/x-wma"))
 	{
@@ -572,7 +612,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		gst_structure_get_int(structure, "channels", &channels);
 		gst_structure_get_int(structure, "block_align", &block_align);
 		GST_INFO_OBJECT(self, "MIMETYPE %s",type);
-		bypass = (wmaversion > 2) ? 0x21 : 0x20;
+		bypass = (wmaversion > 2) ? AUDIOTYPE_WMA_PRO : AUDIOTYPE_WMA;
 		if (codec_data)
 		{
 			guint8 *data;
@@ -626,7 +666,17 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 #endif
 		}
 	}
-	else if (!strcmp(type, "audio/x-raw-int"))
+	else if (!strcmp(type, "audio/AMR"))
+	{
+		const GValue *codec_data = gst_structure_get_value(structure, "codec_data");
+		if (codec_data)
+		{
+			self->codec_data = gst_buffer_copy(gst_value_get_buffer(codec_data));
+		}
+		GST_INFO_OBJECT(self, "MIMETYPE %s",type);
+		bypass = AUDIOTYPE_AMR;
+	}
+	else if (!strcmp(type, XRAW))
 	{
 		guint8 *data;
 		gint size;
@@ -674,6 +724,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		gst_structure_get_int(structure, "channels", &channels);
 		byterate = channels * rate * width / 8;
 		block_align = channels * width / 8;
+		memset(data, 0, size);
 		/* format tag */
 		*(data++) = format & 0xff;
 		*(data++) = (format >> 8) & 0xff;
@@ -701,7 +752,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		self->fixed_buffertimestamp = GST_CLOCK_TIME_NONE;
 		self->fixed_bufferduration = GST_SECOND * (GstClockTime)self->fixed_buffersize / (GstClockTime)byterate;
 		GST_INFO_OBJECT(self, "MIMETYPE %s", type);
-		bypass = 0x30;
+		bypass = AUDIOTYPE_RAW;
 #if GST_VERSION_MAJOR >= 1
 		gst_buffer_unmap(self->codec_data, &map);
 #endif
@@ -743,6 +794,7 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 		self->flushing = TRUE;
 		/* wakeup the poll */
 		write(self->unlockfd[1], "\x01", 1);
+		if(self->paused) ret = GST_BASE_SINK_CLASS(parent_class)->event(sink, event);
 		break;
 	case GST_EVENT_FLUSH_STOP:
 		if (self->fd >= 0) ioctl(self->fd, AUDIO_CLEAR_BUFFER);
@@ -760,9 +812,11 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 			self->cache = NULL;
 		}
 		GST_OBJECT_UNLOCK(self);
+		if(self->paused) ret = GST_BASE_SINK_CLASS(parent_class)->event(sink, event);
 		break;
 	case GST_EVENT_EOS:
 	{
+		gboolean pass_eos = FALSE;
 		struct pollfd pfd[2];
 		pfd[0].fd = self->unlockfd[0];
 		pfd[0].events = POLLIN;
@@ -808,7 +862,7 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 #else
 		GST_BASE_SINK_PREROLL_LOCK(sink);
 #endif
-		/*if (ret) ret = GST_BASE_SINK_CLASS(parent_class)->event(sink, event); */
+		if (ret) ret = GST_BASE_SINK_CLASS(parent_class)->event(sink, event);
 		break;
 	}
 #if GST_VERSION_MAJOR < 1
@@ -858,8 +912,23 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 		}
 		break;
 	}
+	case GST_EVENT_CAPS:
+	{
+		GstCaps *caps;
+		gst_event_parse_caps(event, &caps);
+		if (caps)
+		{
+			ret = gst_dvbaudiosink_set_caps(sink, caps);
+			//gst_caps_unref(caps);
+			if (ret != TRUE)
+			{
+				//GST_ELEMENT_ERROR(self, STREAM, FORMAT,(NULL), ("Set caps failed. Stop render."));
+			}
+		}
+	}
 
 	default:
+		ret = GST_BASE_SINK_CLASS(parent_class)->event(sink, event);
 		break;
 	}
 
@@ -1076,7 +1145,7 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 	pes_header[8] = 0;
 	pes_header_len = 9;
 
-	if (self->bypass == 2)
+	if (self->bypass == AUDIOTYPE_DTS)
 	{
 		int pos = 0;
 		while ((pos + 4) <= size)
@@ -1118,7 +1187,7 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 		pes_header_len += 7;
 	}
 
-	if (self->bypass == 6 && (data[0] < 0xa0 || data[0] > 0xaf))
+	if (self->bypass == AUDIOTYPE_LPCM && (data[0] < 0xa0 || data[0] > 0xaf))
 	{
 		/*
 		 * gstmpegdemux removes the streamid and the number of frames
@@ -1127,6 +1196,57 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 		 */
 		pes_header[pes_header_len++] = 0xa0;
 		pes_header[pes_header_len++] = 0x01;
+	}
+	else if (self->bypass == AUDIOTYPE_WMA || self->bypass == AUDIOTYPE_WMA_PRO)
+	{
+		if (self->codec_data)
+		{
+			size_t payload_len = size;
+#if defined(DREAMBOX) || defined(DAGS)
+			pes_header[pes_header_len++] = 0x42; // B
+			pes_header[pes_header_len++] = 0x43; // C
+			pes_header[pes_header_len++] = 0x4D; // M
+			pes_header[pes_header_len++] = 0x41; // A
+#endif
+			pes_header[pes_header_len++] = (payload_len >> 24) & 0xff;
+			pes_header[pes_header_len++] = (payload_len >> 16) & 0xff;
+			pes_header[pes_header_len++] = (payload_len >> 8) & 0xff;
+			pes_header[pes_header_len++] = payload_len & 0xff;
+			memcpy(&pes_header[pes_header_len], codec_data, codec_data_size);
+			pes_header_len += codec_data_size;
+		}
+	}
+	else if (self->bypass == AUDIOTYPE_AMR)
+	{
+		if (self->codec_data && codec_data_size >= 17)
+		{
+			size_t payload_len = size + 17;
+			pes_header[pes_header_len++] = (payload_len >> 24) & 0xff;
+			pes_header[pes_header_len++] = (payload_len >> 16) & 0xff;
+			pes_header[pes_header_len++] = (payload_len >> 8) & 0xff;
+			pes_header[pes_header_len++] = payload_len & 0xff;
+			memcpy(&pes_header[pes_header_len], codec_data + 8, 9);
+			pes_header_len += 9;
+		}
+	}
+	else if (self->bypass == AUDIOTYPE_RAW)
+	{
+		if (self->codec_data && codec_data_size >= 18)
+		{
+			size_t payload_len = size;
+#if defined(DREAMBOX) || defined(DAGS)
+			pes_header[pes_header_len++] = 0x42; // B
+			pes_header[pes_header_len++] = 0x43; // C
+			pes_header[pes_header_len++] = 0x4D; // M
+			pes_header[pes_header_len++] = 0x41; // A
+#endif
+			pes_header[pes_header_len++] = (payload_len >> 24) & 0xff;
+			pes_header[pes_header_len++] = (payload_len >> 16) & 0xff;
+			pes_header[pes_header_len++] = (payload_len >> 8) & 0xff;
+			pes_header[pes_header_len++] = payload_len & 0xff;
+			memcpy(&pes_header[pes_header_len], codec_data, codec_data_size);
+			pes_header_len += codec_data_size;
+		}
 	}
 
 	pes_set_payload_size(size + pes_header_len - 6, pes_header);
@@ -1178,7 +1298,7 @@ static GstFlowReturn gst_dvbaudiosink_render(GstBaseSink *sink, GstBuffer *buffe
 	GstClockTime timestamp = GST_BUFFER_PTS(buffer);
 #endif
 
-	if (self->bypass < 0)
+	if (self->bypass <= AUDIOTYPE_UNKNOWN)
 	{
 		GST_ELEMENT_ERROR(self, STREAM, FORMAT,(NULL), ("hardware decoder not setup (no caps in pipeline?)"));
 		return GST_FLOW_ERROR;
@@ -1465,7 +1585,7 @@ static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement *element, G
 static gboolean plugin_init(GstPlugin *plugin)
 {
 	return gst_element_register(plugin, "dvbaudiosink",
-						 GST_RANK_PRIMARY,
+						 GST_RANK_PRIMARY + 1,
 						 GST_TYPE_DVBAUDIOSINK);
 }
 

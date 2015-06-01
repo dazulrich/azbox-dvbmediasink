@@ -35,8 +35,8 @@ static GstStaticPadTemplate src_factory = GST_STATIC_PAD_TEMPLATE ("src",
 	);
 
 #if GST_VERSION_MAJOR < 1
-static gboolean gst_dtsdownmix_sink_event (GstPad * pad, GstEvent * event);
-static GstFlowReturn gst_dtsdownmix_chain (GstPad * pad, GstBuffer * buf);
+static gboolean gst_dtsdownmix_sink_event(GstPad * pad, GstEvent * event);
+static GstFlowReturn gst_dtsdownmix_chain(GstPad *pad, GstBuffer *buf);
 #else
 static gboolean gst_dtsdownmix_sink_event(GstPad * pad, GstObject *parent, GstEvent * event);
 static GstFlowReturn gst_dtsdownmix_chain(GstPad *pad, GstObject *parent, GstBuffer *buf);
@@ -118,7 +118,7 @@ GType gst_dtsdownmix_get_type(void)
 }
 
 #if GST_VERSION_MAJOR < 1
-static gboolean gst_dtsdownmix_sink_event(GstPad *pad, GstEvent *event)
+static gboolean gst_dtsdownmix_sink_event(GstPad * pad, GstEvent * event)
 #else
 static gboolean gst_dtsdownmix_sink_event(GstPad * pad, GstObject *parent, GstEvent * event)
 #endif
@@ -222,10 +222,6 @@ static void gst_dtsdownmix_update_streaminfo(GstDtsDownmix *dts)
 	taglist = gst_tag_list_new();
 	gst_tag_list_add(taglist, GST_TAG_MERGE_APPEND,
 			GST_TAG_BITRATE, (guint) dts->bit_rate, NULL);
-
-	gst_tag_list_add(taglist, GST_TAG_MERGE_APPEND,
-			GST_TAG_AUDIO_CODEC, "Downmixed DTS", NULL);
-
 	gst_element_found_tags_for_pad(GST_ELEMENT(dts), dts->srcpad, taglist);
 #else
 	taglist = gst_tag_list_new(GST_TAG_BITRATE, (guint) dts->bit_rate, NULL);

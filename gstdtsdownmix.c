@@ -171,7 +171,7 @@ static gboolean gst_dtsdownmix_sink_event(GstPad * pad, GstObject *parent, GstEv
 			{
 				GstCaps *caps;
 				GstCaps *srccaps = gst_caps_from_string("audio/x-private1-lpcm, framed =(boolean) true");
-				
+
 				gst_event_parse_caps(event, &caps);
 				ret = gst_pad_set_caps(dts->srcpad, srccaps);
 
@@ -180,14 +180,16 @@ static gboolean gst_dtsdownmix_sink_event(GstPad * pad, GstObject *parent, GstEv
 			}
 			break;
 		case GST_EVENT_SEGMENT:
+		{
 			gst_event_copy_segment(event, &dts->segment);
 			dts->sent_segment = TRUE;
 			if (dts->srcpad)
 			{
 				ret = gst_pad_push_event(dts->srcpad, event);
 			}
-			break;
 #endif
+			break;
+		}
 		case GST_EVENT_TAG:
 			if (dts->srcpad)
 			{

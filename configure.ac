@@ -4,7 +4,6 @@ dnl versions of gstreamer and plugins-base
 AC_ARG_WITH(gstversion,
 	AS_HELP_STRING([--with-gstversion],[use gstreamer version (major.minor)]),
 	[GST_MAJORMINOR=$withval],[GST_MAJORMINOR=1.0])
-
 	
 GST_REQUIRED=1.0
 GSTPB_REQUIRED=1.0
@@ -53,7 +52,7 @@ PKG_CHECK_MODULES(GST, \
 
 dnl Give error and exit if we don't have gstreamer
 if test "x$HAVE_GST" = "xno"; then
-  AC_MSG_ERROR(you need gstreamer development packages installed ! (gstreamer-base-$GST_MAJORMINOR))
+  AC_MSG_ERROR(you need gstreamer development packages installed !)
 fi
 
 dnl append GST_ERROR cflags to GST_CFLAGS
@@ -205,6 +204,11 @@ AC_ARG_WITH(pcm,
 if test "$have_pcm" = "yes"; then
 	AC_DEFINE([HAVE_PCM],[1],[Define to 1 for PCM support])
 fi
+
+AC_ARG_WITH(maxpcmrate,
+	AS_HELP_STRING([--with-maxpcmrate],[Max PCM rate, default is 48000]),
+	[have_maxpcmrate=$withval],[have_maxpcmrate=48000])
+AC_DEFINE_UNQUOTED([MAX_PCM_RATE],["$have_maxpcmrate"],[Max PCM rate])
 
 AC_ARG_WITH(eac3,
 	AS_HELP_STRING([--with-eac3],[support E-AC3 / AC3+ / DDP, yes or no]),

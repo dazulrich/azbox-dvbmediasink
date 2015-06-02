@@ -151,6 +151,7 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 
 #define WMACAPS \
 		"audio/x-wma; " \
+		"framed =(boolean) true; "
 
 #define AMRCAPS \
 		"audio/AMR, " \
@@ -186,12 +187,13 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 #define XRAW "audio/x-raw"
 #define PCMCAPS \
 		"audio/x-raw, " \
+		"format = (string) { "GST_AUDIO_NE(S32)", "GST_AUDIO_NE(S24)", "GST_AUDIO_NE(S16)", S8, "GST_AUDIO_NE(U32)", "GST_AUDIO_NE(U24)", "GST_AUDIO_NE(U16)", U8 }, " \
+		"layout = (string) { interleaved, non-interleaved }, " \
 		"rate = (int) [ 1, 48000 ], " "channels = (int) [ 1, 2 ]; "
 #endif
 
 /* removed for testing.. 
-		"format = (string) { "GST_AUDIO_NE(S32)", "GST_AUDIO_NE(S24)", "GST_AUDIO_NE(S16)", S8, "GST_AUDIO_NE(U32)", "GST_AUDIO_NE(U24)", "GST_AUDIO_NE(U16)", U8 }, " \
-		"layout = (string) { interleaved, non-interleaved }, " \
+
 */
 		
 		
@@ -259,9 +261,9 @@ static gboolean gst_dvbaudiosink_unlock(GstBaseSink * basesink);
 static gboolean gst_dvbaudiosink_unlock_stop(GstBaseSink * basesink);
 static gboolean gst_dvbaudiosink_set_caps(GstBaseSink * sink, GstCaps * caps);
 #if GST_VERSION_MAJOR < 1
-static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *basesink);
+static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *sink);
 #else
-static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *basesink, GstCaps *filter);
+static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *sink, GstCaps *filter);
 #endif
 static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement * element, GstStateChange transition);
 static gint64 gst_dvbaudiosink_get_decoder_time(GstDVBAudioSink *self);
@@ -794,7 +796,6 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 		self->flushing = TRUE;
 		/* wakeup the poll */
 		write(self->unlockfd[1], "\x01", 1);
-		if(self->paused) ret = GST_BASE_SINK_CLASS(parent_class)->event(sink, event);
 		break;
 	case GST_EVENT_FLUSH_STOP:
 		if (self->fd >= 0) ioctl(self->fd, AUDIO_CLEAR_BUFFER);
@@ -812,7 +813,6 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 			self->cache = NULL;
 		}
 		GST_OBJECT_UNLOCK(self);
-		if(self->paused) ret = GST_BASE_SINK_CLASS(parent_class)->event(sink, event);
 		break;
 	case GST_EVENT_EOS:
 	{
@@ -862,7 +862,6 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 #else
 		GST_BASE_SINK_PREROLL_LOCK(sink);
 #endif
-		if (ret) ret = GST_BASE_SINK_CLASS(parent_class)->event(sink, event);
 		break;
 	}
 #if GST_VERSION_MAJOR < 1
@@ -928,7 +927,6 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 	}
 
 	default:
-		ret = GST_BASE_SINK_CLASS(parent_class)->event(sink, event);
 		break;
 	}
 

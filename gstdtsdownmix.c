@@ -15,6 +15,8 @@
 
 #include "gstdtsdownmix.h"
 
+static gboolean get_downmix_setting();
+
 GST_DEBUG_CATEGORY_STATIC(dtsdownmix_debug);
 #define GST_CAT_DEFAULT (dtsdownmix_debug)
 
@@ -157,13 +159,27 @@ static gboolean gst_dtsdownmix_sink_event(GstPad * pad, GstObject *parent, GstEv
 					ret = gst_pad_push_event(dts->srcpad, event);
 				}
 			}
+
 			gst_segment_set_newsegment(&dts->segment, update, rate, format, start, end, pos);
-			break;
-		}
 #else
+		case GST_EVENT_CAPS:
+			if (!get_downmix_setting())
+			{
+				ret = FALSE;
+			}
+			else if (dts->srcpad)
+			{
+				GstCaps *caps;
+				GstCaps *srccaps = gst_caps_from_string("audio/x-private1-lpcm, framed =(boolean) true");
+				
+				gst_event_parse_caps(event, &caps);
+				ret = gst_pad_set_caps(dts->srcpad, srccaps);
+
+				gst_caps_unref(srccaps);
+				gst_event_unref(event);
+			}
+			break;
 		case GST_EVENT_SEGMENT:
-			gst_event_new_segment(&dts->segment);
-			gst_event_parse_new_segment(&dts->segment);
 			gst_event_copy_segment(event, &dts->segment);
 			dts->sent_segment = TRUE;
 			if (dts->srcpad)
@@ -191,7 +207,7 @@ static gboolean gst_dtsdownmix_sink_event(GstPad * pad, GstObject *parent, GstEv
 			}
 			break;
 		case GST_EVENT_FLUSH_STOP:
-      if (dts->cache) 
+			if (dts->cache)
 			{
 				gst_buffer_unref(dts->cache);
 				dts->cache = NULL;
@@ -222,6 +238,10 @@ static void gst_dtsdownmix_update_streaminfo(GstDtsDownmix *dts)
 	taglist = gst_tag_list_new();
 	gst_tag_list_add(taglist, GST_TAG_MERGE_APPEND,
 			GST_TAG_BITRATE, (guint) dts->bit_rate, NULL);
+
+	gst_tag_list_add(taglist, GST_TAG_MERGE_APPEND,
+			GST_TAG_AUDIO_CODEC, "Downmixed DTS", NULL);
+
 	gst_element_found_tags_for_pad(GST_ELEMENT(dts), dts->srcpad, taglist);
 #else
 	taglist = gst_tag_list_new(GST_TAG_BITRATE, (guint) dts->bit_rate, NULL);
@@ -250,44 +270,7 @@ static GstFlowReturn gst_dtsdownmix_handle_frame(GstDtsDownmix *dts, guint8 *dat
 #if GST_VERSION_MAJOR < 1
 	if (gst_pad_alloc_buffer_and_set_caps(dts->srcpad, 0, num_blocks * 256 * dts->using_channels * 2 + 7, GST_PAD_CAPS(dts->srcpad), &buffer) == GST_FLOW_OK)
 #else
-	GstCaps *caps;
-	GstQuery *query;
-	GstStructure *structure;
-	GstBufferPool *pool;
-	GstStructure *config;
-	guint size, min, max, ret;
-	query = gst_query_new_allocation (caps, TRUE);
-//	caps = gst_pad_get_current_caps(dts->srcpad);
-
-	if (!gst_pad_peer_query (dts->srcpad, query)) {
-		/* query failed, not a problem, we use the query defaults */
-	}
-
-	if (gst_query_get_n_allocation_pools (query) > 0) {
-		/* we got configuration from our peer, parse them */
-		gst_query_parse_nth_allocation_pool (query, 0, &pool, &size, &min, &max);
-	} else {
-		pool = NULL;
-		size = 0;
-		min = max = 0;
-	}
-
-	if (pool == NULL) {
-	/* we did not get a pool, make one ourselves then */
-		pool = gst_buffer_pool_new ();
-	}
-
-	size = num_blocks * 256 * dts->using_channels * 2 + 7;
-	config = gst_buffer_pool_get_config (pool);
-	gst_buffer_pool_config_set_params (config, caps, size, min, max);
-	gst_buffer_pool_set_config (pool, config);
-
-	/* and activate */
-	gst_buffer_pool_set_active (pool, TRUE);
-	ret = gst_buffer_pool_acquire_buffer(pool, &buffer, NULL);
-	gst_buffer_make_writable(buffer);
-
-	if (ret == GST_FLOW_OK)
+	if ((buffer = gst_buffer_new_allocate(NULL, num_blocks * 256 * dts->using_channels * 2 + 7, NULL)))
 #endif
 	{
 		gint i;

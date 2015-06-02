@@ -183,10 +183,13 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 #define XRAW "audio/x-raw"
 #define PCMCAPS \
 		"audio/x-raw, " \
-		"format = (string) { "GST_AUDIO_NE(S32)", "GST_AUDIO_NE(S24)", "GST_AUDIO_NE(S16)", S8, "GST_AUDIO_NE(U32)", "GST_AUDIO_NE(U24)", "GST_AUDIO_NE(U16)", U8 }, " \
 		"layout = (string) { interleaved, non-interleaved }, " \
-		"rate = (int) [ 1, " MAX_PCM_RATE " ], " "channels = (int) [ 1, 2 ]; "
-#endif
+		"rate = (int) [ 1/, " MAX_PCM_RATE " ], " "channels = (int) [ 1, 2 ]; "
+#endif/
+
+/*  		"format = (string) { " GST_AUDIO_NE(S32) ", " GST_AUDIO_NE(/S24) ", " GST_AUDIO_NE(S16) ", S8, " GST_AUDIO_NE(U32) ", " GST_AUDIO_NE(U24) ", " GST_AUDIO_NE(U16) ", U8 }, " \
+ 		"layout = (string) { interleaved, non-interleaved }, " \
+*/
 
 static GstStaticPadTemplate sink_factory =
 GST_STATIC_PAD_TEMPLATE(
@@ -688,7 +691,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 #else
 		GstMapInfo map;
 		gst_buffer_map(self->codec_data, &map, GST_MAP_WRITE);
-		tdata = data = map.data;
+		data = map.data;
 		size = map.size;
 #endif
 #if GST_VERSION_MAJOR < 1

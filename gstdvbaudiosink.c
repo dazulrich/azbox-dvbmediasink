@@ -77,11 +77,9 @@
 
 #if GST_VERSION_MAJOR < 1
 #include <gst/gst.h>
-#include <gst/audio/audio.h>
 #include <gst/base/gstbasesink.h>
 #else
 #include <gstreamer-1.0/gst/gst.h>
-#include <gstreamer-1.0/gst/audio/audio.h>
 #include <gstreamer-1.0/gst/base/gstbasesink.h>
 #endif
 
@@ -140,8 +138,7 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 		"framed =(boolean) true; "
 
 #define LPCMCAPS \
-		"audio/x-private1-lpcm, " \
-		"framed =(boolean) true; "
+		"audio/x-private1-lpcm; "
 
 #define DTSCAPS \
 		"audio/x-dts, " \
@@ -151,7 +148,6 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 
 #define WMACAPS \
 		"audio/x-wma; " \
-		"framed =(boolean) true; "
 
 #define AMRCAPS \
 		"audio/AMR, " \
@@ -165,38 +161,33 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 		"signed = (boolean) { TRUE, FALSE }, " \
 		"width = (int) 32, " \
 		"depth = (int) 32, " \
-		"rate = (int) [ 1, 48000 ], " "channels = (int) [ 1, 2 ]; " \
+		"rate = (int) [ 1, " MAX_PCM_RATE " ], " "channels = (int) [ 1, 2 ]; " \
 		"audio/x-raw-int, " \
 		"endianness = (int) { " G_STRINGIFY(G_BYTE_ORDER) " }, " \
 		"signed = (boolean) { TRUE, FALSE }, " \
 		"width = (int) 24, " \
 		"depth = (int) 24, " \
-		"rate = (int) [ 1, 48000 ], " "channels = (int) [ 1, 2 ]; " \
+		"rate = (int) [ 1, " MAX_PCM_RATE " ], " "channels = (int) [ 1, 2 ]; " \
 		"audio/x-raw-int, " \
 		"endianness = (int) { " G_STRINGIFY(G_BYTE_ORDER) " }, " \
 		"signed = (boolean) { TRUE, FALSE }, " \
 		"width = (int) 16, " \
 		"depth = (int) 16, " \
-		"rate = (int) [ 1, 48000 ], " "channels = (int) [ 1, 2 ]; " \
+		"rate = (int) [ 1, " MAX_PCM_RATE " ], " "channels = (int) [ 1, 2 ]; " \
 		"audio/x-raw-int, " \
 		"signed = (boolean) { TRUE, FALSE }, " \
 		"width = (int) 8, " \
 		"depth = (int) 8, " \
-		"rate = (int) [ 1, 48000 ], " "channels = (int) [ 1, 2 ];"
+		"rate = (int) [ 1, " MAX_PCM_RATE " ], " "channels = (int) [ 1, 2 ];"
 #else
 #define XRAW "audio/x-raw"
 #define PCMCAPS \
 		"audio/x-raw, " \
 		"format = (string) { "GST_AUDIO_NE(S32)", "GST_AUDIO_NE(S24)", "GST_AUDIO_NE(S16)", S8, "GST_AUDIO_NE(U32)", "GST_AUDIO_NE(U24)", "GST_AUDIO_NE(U16)", U8 }, " \
 		"layout = (string) { interleaved, non-interleaved }, " \
-		"rate = (int) [ 1, 48000 ], " "channels = (int) [ 1, 2 ]; "
+		"rate = (int) [ 1, " MAX_PCM_RATE " ], " "channels = (int) [ 1, 2 ]; "
 #endif
 
-/* removed for testing.. 
-
-*/
-		
-		
 static GstStaticPadTemplate sink_factory =
 GST_STATIC_PAD_TEMPLATE(
 	"sink",
@@ -236,18 +227,21 @@ static void gst_dvbaudiosink_init(GstDVBAudioSink *self);
 	GST_DEBUG_CATEGORY_INIT(dvbaudiosink_debug, "dvbaudiosink", 0, "dvbaudiosink element");
 
 #if GST_VERSION_MAJOR < 1
+GST_BOILERPLATE_FULL(GstDVBAudioSink, gst_dvbaudiosink, GstBaseSink, GST_TYPE_BASE_SINK, DEBUG_INIT);
 static void gst_dvbaudiosink_base_init(gpointer self)
 {
+	static GstElementDetails element_details =
+	{
+		"A DVB audio sink",
+		"Generic/DVBAudioSink",
+		"Outputs PES into a linuxtv dvb audio device",
+		""
+	};
 	GstElementClass *element_class = GST_ELEMENT_CLASS(self);
 
 	gst_element_class_add_pad_template(element_class, gst_static_pad_template_get(&sink_factory));
-	gst_element_class_set_details_simple(element_class,
-		"DVB audio sink",
-		"Generic/DVBAudioSink",
-		"Outputs PES into a linuxtv dvb audio device",
-		"");
+	gst_element_class_set_details(element_class, &element_details);
 }
-GST_BOILERPLATE_FULL(GstDVBAudioSink, gst_dvbaudiosink, GstBaseSink, GST_TYPE_BASE_SINK, DEBUG_INIT);
 #else
 static GstBaseSinkClass *parent_class = NULL;
 G_DEFINE_TYPE_WITH_CODE(GstDVBAudioSink, gst_dvbaudiosink, GST_TYPE_BASE_SINK, DEBUG_INIT);
@@ -263,7 +257,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink * sink, GstCaps * caps);
 #if GST_VERSION_MAJOR < 1
 static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *sink);
 #else
-static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *sink, GstCaps *filter);
+static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *basesink, GstCaps *filter);
 #endif
 static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement * element, GstStateChange transition);
 static gint64 gst_dvbaudiosink_get_decoder_time(GstDVBAudioSink *self);
@@ -694,7 +688,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 #else
 		GstMapInfo map;
 		gst_buffer_map(self->codec_data, &map, GST_MAP_WRITE);
-		data = map.data;
+		tdata = data = map.data;
 		size = map.size;
 #endif
 #if GST_VERSION_MAJOR < 1
@@ -753,6 +747,8 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		self->fixed_buffersize *= channels * depth / 8;
 		self->fixed_buffertimestamp = GST_CLOCK_TIME_NONE;
 		self->fixed_bufferduration = GST_SECOND * (GstClockTime)self->fixed_buffersize / (GstClockTime)byterate;
+		ioctl(self->fd, AUDIO_SET_CODEC_DATA, data);
+
 		GST_INFO_OBJECT(self, "MIMETYPE %s", type);
 		bypass = AUDIOTYPE_RAW;
 #if GST_VERSION_MAJOR >= 1
@@ -796,6 +792,7 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 		self->flushing = TRUE;
 		/* wakeup the poll */
 		write(self->unlockfd[1], "\x01", 1);
+		if(self->paused) ret = GST_BASE_SINK_CLASS(parent_class)->event(sink, event);
 		break;
 	case GST_EVENT_FLUSH_STOP:
 		if (self->fd >= 0) ioctl(self->fd, AUDIO_CLEAR_BUFFER);
@@ -813,15 +810,16 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 			self->cache = NULL;
 		}
 		GST_OBJECT_UNLOCK(self);
+		if(self->paused) ret = GST_BASE_SINK_CLASS(parent_class)->event(sink, event);
 		break;
 	case GST_EVENT_EOS:
 	{
-		gboolean pass_eos = FALSE;
 		struct pollfd pfd[2];
 		pfd[0].fd = self->unlockfd[0];
 		pfd[0].events = POLLIN;
 		pfd[1].fd = self->fd;
 		pfd[1].events = POLLIN;
+
 #if GST_VERSION_MAJOR < 1
 		GST_PAD_PREROLL_UNLOCK(sink->sinkpad);
 #else
@@ -862,6 +860,7 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 #else
 		GST_BASE_SINK_PREROLL_LOCK(sink);
 #endif
+		if (ret) ret = GST_BASE_SINK_CLASS(parent_class)->event(sink, event);
 		break;
 	}
 #if GST_VERSION_MAJOR < 1
@@ -921,19 +920,19 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 			//gst_caps_unref(caps);
 			if (ret != TRUE)
 			{
-				//GST_ELEMENT_ERROR(self, STREAM, FORMAT,(NULL), ("Set caps failed. Stop render."));
+				GST_ELEMENT_ERROR(self, STREAM, FORMAT,(NULL), ("Set caps failed. Stop render."));
 			}
 		}
 	}
 
 	default:
+		ret = GST_BASE_SINK_CLASS(parent_class)->event(sink, event);
 		break;
 	}
 
 	return ret;
 }
 
-/* copied from athoik */
 static int audio_write(GstDVBAudioSink *self, GstBuffer *buffer, size_t start, size_t end)
 {
 	size_t written = start;
@@ -1200,12 +1199,6 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 		if (self->codec_data)
 		{
 			size_t payload_len = size;
-#if defined(DREAMBOX) || defined(DAGS)
-			pes_header[pes_header_len++] = 0x42; // B
-			pes_header[pes_header_len++] = 0x43; // C
-			pes_header[pes_header_len++] = 0x4D; // M
-			pes_header[pes_header_len++] = 0x41; // A
-#endif
 			pes_header[pes_header_len++] = (payload_len >> 24) & 0xff;
 			pes_header[pes_header_len++] = (payload_len >> 16) & 0xff;
 			pes_header[pes_header_len++] = (payload_len >> 8) & 0xff;
@@ -1232,12 +1225,6 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 		if (self->codec_data && codec_data_size >= 18)
 		{
 			size_t payload_len = size;
-#if defined(DREAMBOX) || defined(DAGS)
-			pes_header[pes_header_len++] = 0x42; // B
-			pes_header[pes_header_len++] = 0x43; // C
-			pes_header[pes_header_len++] = 0x4D; // M
-			pes_header[pes_header_len++] = 0x41; // A
-#endif
 			pes_header[pes_header_len++] = (payload_len >> 24) & 0xff;
 			pes_header[pes_header_len++] = (payload_len >> 16) & 0xff;
 			pes_header[pes_header_len++] = (payload_len >> 8) & 0xff;
@@ -1583,7 +1570,7 @@ static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement *element, G
 static gboolean plugin_init(GstPlugin *plugin)
 {
 	return gst_element_register(plugin, "dvbaudiosink",
-						 GST_RANK_PRIMARY + 1,
+						 GST_RANK_PRIMARY,
 						 GST_TYPE_DVBAUDIOSINK);
 }
 

@@ -97,7 +97,7 @@ typedef struct video_codec_data
 #define VIDEO_SET_CODEC_DATA _IOW('o', 80, video_codec_data_t)
 #endif
 
-#ifdef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
+#undef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
 struct bitstream
 {
 	guint8 *data;

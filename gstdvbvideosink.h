@@ -117,6 +117,8 @@ struct _GstDVBVideoSink
 	gint64 timestamp_offset;
 	gboolean must_send_header;
 
+	gboolean check_if_packed_bitstream;
+
 	queue_entry_t *queue;
 };
 

@@ -78,7 +78,6 @@
 #include <gst/gst.h>
 #include <gst/audio/audio.h>
 #include <gst/base/gstbasesink.h>
-#include <gst/base/gstbasesink.h>
 #include <gst/audio/gstaudiodecoder.h>
 
 #include "common.h"

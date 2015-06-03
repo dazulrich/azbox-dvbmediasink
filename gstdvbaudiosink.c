@@ -75,14 +75,11 @@
 #include <poll.h>
 #include <stdio.h>
 
-#if GST_VERSION_MAJOR < 1
 #include <gst/gst.h>
+#include <gst/audio/audio.h>
 #include <gst/base/gstbasesink.h>
-#else
-#include <gstreamer-1.0/gst/gst.h>
-#include <gstreamer-1.0/audio/audio.h>
-#include <gstreamer-1.0/gst/base/gstbasesink.h>
-#endif
+#include <gst/base/gstbasesink.h>
+#include <gst/audio/gstaudiodecoder.h>
 
 #include "common.h"
 #include "gstdvbaudiosink.h"

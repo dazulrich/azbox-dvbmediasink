@@ -1224,7 +1224,7 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		}
 		if (self->playing)
 		{
-			if (self->fd >= 0) ioctl(self->fd, VIDEO_STOP, 0);
+			if (self->fd >= 0) ioctl(self->fd, VIDEO_STC_STOP, 0);
 			self->playing = FALSE;
 		}
 		if (self->fd < 0 || ioctl(self->fd, VIDEO_SET_STREAMTYPE, self->stream_type) < 0)

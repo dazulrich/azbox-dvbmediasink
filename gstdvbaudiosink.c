@@ -77,7 +77,6 @@
 
 #if GST_VERSION_MAJOR < 1
 #include <gst/gst.h>
-#include <gst/audio/audio.h>
 #include <gst/base/gstbasesink.h>
 #else
 #include <gstreamer-1.0/gst/gst.h>

@@ -135,7 +135,8 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 		"framed =(boolean) true; "
 
 #define LPCMCAPS \
-		"audio/x-private1-lpcm; "
+		"audio/x-private1-lpcm, " \
+		"framed =(boolean) true; "
 
 #define DTSCAPS \
 		"audio/x-dts, " \
@@ -409,15 +410,15 @@ static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *basesink, GstCaps *filter
 #endif
 	);
 
-#ifdef HAVE_DTS
-# ifdef HAVE_DTSDOWNMIX
+#if defined(HAVE_DTS) && !defined(HAVE_DTSDOWNMIX)
+	gst_caps_append(caps, gst_caps_from_string(DTSCAPS));
+#endif
+
+#ifdef HAVE_DTSDOWNMIX
 	if (!get_downmix_setting())
 	{
 		gst_caps_append(caps, gst_caps_from_string(DTSCAPS));
 	}
-# else
-	gst_caps_append(caps, gst_caps_from_string(DTSCAPS));
-# endif
 #endif
 
 #if GST_VERSION_MAJOR >= 1
@@ -780,7 +781,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 {
 	GstDVBAudioSink *self = GST_DVBAUDIOSINK(sink);
-	GST_DEBUG_OBJECT(self, "EVENT %s", gst_event_type_get_name(GST_EVENT_TYPE(event)));
+	GST_INFO_OBJECT(self, "EVENT %s", gst_event_type_get_name(GST_EVENT_TYPE(event)));
 	gboolean ret = TRUE;
 
 	switch (GST_EVENT_TYPE(event))
@@ -811,6 +812,7 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 		break;
 	case GST_EVENT_EOS:
 	{
+		gboolean pass_eos = FALSE;
 		struct pollfd pfd[2];
 		pfd[0].fd = self->unlockfd[0];
 		pfd[0].events = POLLIN;
@@ -1191,12 +1193,17 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 		pes_header[pes_header_len++] = 0xa0;
 		pes_header[pes_header_len++] = 0x01;
 	}
-/*	commented out
 else if (self->bypass == AUDIOTYPE_WMA || self->bypass == AUDIOTYPE_WMA_PRO)
 	{
 		if (self->codec_data)
 		{
 			size_t payload_len = size;
+#if defined(DREAMBOX) || defined(DAGS)
+			pes_header[pes_header_len++] = 0x42; // B
+			pes_header[pes_header_len++] = 0x43; // C
+			pes_header[pes_header_len++] = 0x4D; // M
+			pes_header[pes_header_len++] = 0x41; // A
+#endif
 			pes_header[pes_header_len++] = (payload_len >> 24) & 0xff;
 			pes_header[pes_header_len++] = (payload_len >> 16) & 0xff;
 			pes_header[pes_header_len++] = (payload_len >> 8) & 0xff;
@@ -1223,6 +1230,12 @@ else if (self->bypass == AUDIOTYPE_WMA || self->bypass == AUDIOTYPE_WMA_PRO)
 		if (self->codec_data && codec_data_size >= 18)
 		{
 			size_t payload_len = size;
+#if defined(DREAMBOX) || defined(DAGS)
+			pes_header[pes_header_len++] = 0x42; // B
+			pes_header[pes_header_len++] = 0x43; // C
+			pes_header[pes_header_len++] = 0x4D; // M
+			pes_header[pes_header_len++] = 0x41; // A
+#endif
 			pes_header[pes_header_len++] = (payload_len >> 24) & 0xff;
 			pes_header[pes_header_len++] = (payload_len >> 16) & 0xff;
 			pes_header[pes_header_len++] = (payload_len >> 8) & 0xff;
@@ -1231,7 +1244,6 @@ else if (self->bypass == AUDIOTYPE_WMA || self->bypass == AUDIOTYPE_WMA_PRO)
 			pes_header_len += codec_data_size;
 		}
 	}
-*/
 	pes_set_payload_size(size + pes_header_len - 6, pes_header);
 
 	if (audio_write(self, self->pesheader_buffer, 0, pes_header_len) < 0) goto error;
@@ -1514,9 +1526,10 @@ static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement *element, G
 	{
 	case GST_STATE_CHANGE_NULL_TO_READY:
 		GST_DEBUG_OBJECT(self,"GST_STATE_CHANGE_NULL_TO_READY");
+		self->ok_to_write = 1;
 		break;
 	case GST_STATE_CHANGE_READY_TO_PAUSED:
-		GST_DEBUG_OBJECT(self,"GST_STATE_CHANGE_READY_TO_PAUSED");
+		GST_INFO_OBJECT(self,"GST_STATE_CHANGE_READY_TO_PAUSED");
 		self->paused = TRUE;
 
 		if (self->fd >= 0)
@@ -1546,10 +1559,10 @@ static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement *element, G
 		write(self->unlockfd[1], "\x01", 1);
 		break;
 	case GST_STATE_CHANGE_PAUSED_TO_READY:
-		GST_DEBUG_OBJECT(self,"GST_STATE_CHANGE_PAUSED_TO_READY");
+		GST_INFO_OBJECT(self,"GST_STATE_CHANGE_PAUSED_TO_READY");
 		break;
 	case GST_STATE_CHANGE_READY_TO_NULL:
-		GST_DEBUG_OBJECT(self,"GST_STATE_CHANGE_READY_TO_NULL");
+		GST_INFO_OBJECT(self,"GST_STATE_CHANGE_READY_TO_NULL");
 		break;
 	default:
 		break;
@@ -1567,8 +1580,9 @@ static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement *element, G
  */
 static gboolean plugin_init(GstPlugin *plugin)
 {
+	gst_debug_set_colored(GST_DEBUG_COLOR_MODE_OFF);
 	return gst_element_register(plugin, "dvbaudiosink",
-						 GST_RANK_PRIMARY,
+						 GST_RANK_PRIMARY + 1,
 						 GST_TYPE_DVBAUDIOSINK);
 }
 

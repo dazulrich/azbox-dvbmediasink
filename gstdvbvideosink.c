@@ -166,8 +166,9 @@ GST_DEBUG_CATEGORY_STATIC (dvbvideosink_debug);
 
 #define VIDEO_CAPS \
   "width = (int) [ 16, 4096 ], " \
-  "height = (int) [ 16, 4096 ] "
-
+  "height = (int) [ 16, 4096 ] " \
+  "framerate = (fraction) [ 0, MAX ]"
+  
 #define MPEG4V2_LIMITED_CAPS \
   "width = (int) [ 16, 800 ], " \
   "height = (int) [ 16, 600 ], " \

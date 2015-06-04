@@ -83,13 +83,16 @@
 #include "gstdvbaudiosink.h"
 #include "gstdvbsink-marshal.h"
 
+#define AZBOX
+
+#if defined(AZBOX)
 #define AUDIO_RESET_STC                	_IO('o', 30)
 #define AUDIO_STC_PLAY					_IO('o', 31)
 #define AUDIO_STC_STOP					_IO('o', 32)
 #define AUDIO_FFW						_IO('o', 33)
 #define AUDIO_FBW						_IO('o', 34)
 #define AUDIO_SET_CODEC_DATA 			_IO('o', 35)
-
+#endif
 
 GST_DEBUG_CATEGORY_STATIC(dvbaudiosink_debug);
 #define GST_CAT_DEFAULT dvbaudiosink_debug
@@ -131,12 +134,6 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 		"audio/x-private1-ac3, " \
 		"framed =(boolean) true; "
 
-#define EAC3CAPS \
-		"audio/x-eac3, " \
-		"framed =(boolean) true; " \
-		"audio/x-private1-eac3, " \
-		"framed =(boolean) true; "
-
 #define LPCMCAPS \
 		"audio/x-private1-lpcm, " \
 		"framed =(boolean) true; "
@@ -150,24 +147,15 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 #define WMACAPS \
 		"audio/x-wma; " \
 
-#define AMRCAPS \
-		"audio/AMR, " \
-		"rate = (int) {8000, 16000}, channels = (int) 1; "
 
 #define XRAW "audio/x-raw"
-#if defined(DREAMBOX) || defined(MAX_PCMRATE_48K)
+
 #define PCMCAPS \
 		"audio/x-raw, " \
 		"format = (string) { "GST_AUDIO_NE(S32)", "GST_AUDIO_NE(S24)", "GST_AUDIO_NE(S16)", S8, "GST_AUDIO_NE(U32)", "GST_AUDIO_NE(U24)", "GST_AUDIO_NE(U16)", U8 }, " \
 		"layout = (string) { interleaved, non-interleaved }, " \
 		"rate = (int) [ 1, 48000 ], " "channels = (int) [ 1, 2 ]; "
-#else
-#define PCMCAPS \
-		"audio/x-raw, " \
-		"format = (string) { "GST_AUDIO_NE(S32)", "GST_AUDIO_NE(S24)", "GST_AUDIO_NE(S16)", S8, "GST_AUDIO_NE(U32)", "GST_AUDIO_NE(U24)", "GST_AUDIO_NE(U16)", U8 }, " \
-		"layout = (string) { interleaved, non-interleaved }, " \
-		"rate = (int) [ 1, MAX ], " "channels = (int) [ 1, 2 ]; "
-#endif
+
 
 static GstStaticPadTemplate sink_factory =
 GST_STATIC_PAD_TEMPLATE(
@@ -177,9 +165,6 @@ GST_STATIC_PAD_TEMPLATE(
 	GST_STATIC_CAPS(
 		MPEGCAPS 
 		AC3CAPS
-#ifdef HAVE_EAC3
-		EAC3CAPS
-#endif
 #ifdef HAVE_DTS
 		DTSCAPS
 #endif
@@ -188,9 +173,6 @@ GST_STATIC_PAD_TEMPLATE(
 #endif
 #ifdef HAVE_WMA
 		WMACAPS
-#endif
-#ifdef HAVE_AMR
-		AMRCAPS
 #endif
 #ifdef HAVE_PCM
 		PCMCAPS
@@ -213,7 +195,7 @@ static GstFlowReturn gst_dvbaudiosink_render(GstBaseSink * sink, GstBuffer * buf
 static gboolean gst_dvbaudiosink_unlock(GstBaseSink * basesink);
 static gboolean gst_dvbaudiosink_unlock_stop(GstBaseSink * basesink);
 static gboolean gst_dvbaudiosink_set_caps(GstBaseSink * sink, GstCaps * caps);
-static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *basesink, GstCaps *filter);
+static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink * sink, GstCaps *filter);
 static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement * element, GstStateChange transition);
 static gint64 gst_dvbaudiosink_get_decoder_time(GstDVBAudioSink *self);
 #ifdef DREAMBOX
@@ -365,17 +347,11 @@ static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *basesink, GstCaps *filter
 	GstCaps *caps = gst_caps_from_string(
 		MPEGCAPS 
 		AC3CAPS
-#ifdef HAVE_EAC3
-		EAC3CAPS
-#endif
 #ifdef HAVE_LPCM
 		LPCMCAPS
 #endif
 #ifdef HAVE_WMA
 		WMACAPS
-#endif
-#ifdef HAVE_AMR
-		AMRCAPS
 #endif
 #ifdef HAVE_PCM
 		PCMCAPS
@@ -528,11 +504,6 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		GST_INFO_OBJECT(self, "MIMETYPE %s",type);
 		bypass = AUDIOTYPE_AC3;
 	}
-	else if (!strcmp(type, "audio/x-eac3"))
-	{
-		GST_INFO_OBJECT(self, "MIMETYPE %s",type);
-		bypass = AUDIOTYPE_AC3_PLUS;
-	}
 	else if (!strcmp(type, "audio/x-private1-dts"))
 	{
 		GST_INFO_OBJECT(self, "MIMETYPE %s(DVD Audio - 2 byte skipping)",type);
@@ -543,12 +514,6 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 	{
 		GST_INFO_OBJECT(self, "MIMETYPE %s(DVD Audio - 2 byte skipping)",type);
 		bypass = AUDIOTYPE_AC3;
-		self->skip = 2;
-	}
-	else if (!strcmp(type, "audio/x-private1-eac3"))
-	{
-		GST_INFO_OBJECT(self, "MIMETYPE %s(DVD Audio - 2 byte skipping)",type);
-		bypass = AUDIOTYPE_AC3_PLUS;
 		self->skip = 2;
 	}
 	else if (!strcmp(type, "audio/x-private1-lpcm"))
@@ -616,16 +581,6 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 			gst_buffer_unmap(self->codec_data, &map);
 			gst_buffer_unmap(gst_value_get_buffer(codec_data), &codecdatamap);
 		}
-	}
-	else if (!strcmp(type, "audio/AMR"))
-	{
-		const GValue *codec_data = gst_structure_get_value(structure, "codec_data");
-		if (codec_data)
-		{
-			self->codec_data = gst_buffer_copy(gst_value_get_buffer(codec_data));
-		}
-		GST_INFO_OBJECT(self, "MIMETYPE %s",type);
-		bypass = AUDIOTYPE_AMR;
 	}
 	else if (!strcmp(type, XRAW))
 	{
@@ -1121,19 +1076,6 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 			pes_header_len += codec_data_size;
 		}
 	}
-	else if (self->bypass == AUDIOTYPE_AMR)
-	{
-		if (self->codec_data && codec_data_size >= 17)
-		{
-			size_t payload_len = size + 17;
-			pes_header[pes_header_len++] = (payload_len >> 24) & 0xff;
-			pes_header[pes_header_len++] = (payload_len >> 16) & 0xff;
-			pes_header[pes_header_len++] = (payload_len >> 8) & 0xff;
-			pes_header[pes_header_len++] = payload_len & 0xff;
-			memcpy(&pes_header[pes_header_len], codec_data + 8, 9);
-			pes_header_len += 9;
-		}
-	}
 	else if (self->bypass == AUDIOTYPE_RAW)
 	{
 		if (self->codec_data && codec_data_size >= 18)
@@ -1420,24 +1362,8 @@ static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement *element, G
 		break;
 	case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
 		GST_INFO_OBJECT(self,"GST_STATE_CHANGE_PAUSED_TO_PLAYING");
-#ifdef DREAMBOX
-		if (!get_dtsdownmix_setting() && get_dtsdownmix_pause())
-		{
-			GST_INFO_OBJECT(self,"GST_STATE_CHANGE_PAUSED_TO_PLAYING DREAMBOX SHOULD STAY IN PAUSE");
-			self->playing = FALSE;
-			self->ok_to_write = 0;
-			self->paused = TRUE;
-		}
-		else
-		{
-			if (self->fd >= 0) {ioctl(self->fd, AUDIO_STC_PLAY);}
-			self->playing = TRUE;
-			self->paused = FALSE;
-		}
-#else
-		if (self->fd >= 0) {ioctl(self->fd, AUDIO_STC_PLAY);}
+		if (self->fd >= 0)  ioctl(self->fd, AUDIO_STC_PLAY); 
 		self->paused = FALSE;
-#endif
 		break;
 	default:
 		break;
@@ -1536,7 +1462,7 @@ static gboolean plugin_init(GstPlugin *plugin)
 {
 	gst_debug_set_colored(GST_DEBUG_COLOR_MODE_OFF);
 	return gst_element_register(plugin, "dvbaudiosink",
-						 GST_RANK_PRIMARY + 1,
+						 GST_RANK_PRIMARY,
 						 GST_TYPE_DVBAUDIOSINK);
 }
 

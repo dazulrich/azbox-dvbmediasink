@@ -85,14 +85,15 @@
 
 #define AZBOX
 
-#if defined(AZBOX)
+/*
 #define AUDIO_RESET_STC                	_IO('o', 30)
 #define AUDIO_STC_PLAY					_IO('o', 31)
 #define AUDIO_STC_STOP					_IO('o', 32)
+*/
 #define AUDIO_FFW						_IO('o', 33)
 #define AUDIO_FBW						_IO('o', 34)
 #define AUDIO_SET_CODEC_DATA 			_IO('o', 35)
-#endif
+
 
 GST_DEBUG_CATEGORY_STATIC(dvbaudiosink_debug);
 #define GST_CAT_DEFAULT dvbaudiosink_debug
@@ -659,7 +660,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 
 	if (self->playing)
 	{
-		if (self->fd >= 0) ioctl(self->fd, AUDIO_STC_STOP, 0);
+		if (self->fd >= 0) ioctl(self->fd, AUDIO_STOP, 0);
 		self->playing = FALSE;
 	}
 	if (self->fd < 0 || ioctl(self->fd, AUDIO_SET_BYPASS_MODE, bypass) < 0)
@@ -667,7 +668,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		GST_ELEMENT_ERROR(self, STREAM, TYPE_NOT_FOUND,(NULL),("hardware decoder can't be set to bypass mode type %s", type));
 		return FALSE;
 	}
-	if (self->fd >= 0) ioctl(self->fd, AUDIO_STC_PLAY);
+	if (self->fd >= 0) ioctl(self->fd, AUDIO_PLAY);
 	self->playing = TRUE;
 
 	self->bypass = bypass;
@@ -1283,7 +1284,7 @@ static gboolean gst_dvbaudiosink_stop(GstBaseSink * basesink)
 	{
 		if (self->playing)
 		{
-			ioctl(self->fd, AUDIO_STC_STOP);
+			ioctl(self->fd, AUDIO_STOP);
 			self->playing = FALSE;
 		}
 		ioctl(self->fd, AUDIO_SELECT_SOURCE, AUDIO_SOURCE_DEMUX);
@@ -1357,12 +1358,12 @@ static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement *element, G
 		if (self->fd >= 0)
 		{
 			ioctl(self->fd, AUDIO_SELECT_SOURCE, AUDIO_SOURCE_MEMORY);
-			ioctl(self->fd,	AUDIO_RESET_STC);			
+			ioctl(self->fd,	AUDIO_PAUSE);			
 		}
 		break;
 	case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
 		GST_INFO_OBJECT(self,"GST_STATE_CHANGE_PAUSED_TO_PLAYING");
-		if (self->fd >= 0)  ioctl(self->fd, AUDIO_STC_PLAY); 
+		if (self->fd >= 0)  ioctl(self->fd, AUDIO_CONTINUE); 
 		self->paused = FALSE;
 		break;
 	default:
@@ -1376,7 +1377,7 @@ static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement *element, G
 	case GST_STATE_CHANGE_PLAYING_TO_PAUSED:
 		GST_INFO_OBJECT(self,"GST_STATE_CHANGE_PLAYING_TO_PAUSED");
 		self->paused = TRUE;
-		if (self->fd >= 0) ioctl(self->fd, AUDIO_STC_STOP);
+		if (self->fd >= 0) ioctl(self->fd, AUDIO_STOP);
 		/* wakeup the poll */
 		write(self->unlockfd[1], "\x01", 1);
 #ifdef DREAMBOX

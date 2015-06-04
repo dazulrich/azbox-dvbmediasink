@@ -187,7 +187,6 @@ GST_STATIC_PAD_TEMPLATE (
 	GST_PAD_SINK,
 	GST_PAD_ALWAYS,
 	GST_STATIC_CAPS (
-#ifdef HAVE_MPEG4
 	"video/mpeg, "
 #ifdef HAVE_MPEG4
 		"mpegversion = (int) { 1, 2, 4 }, "
@@ -768,7 +767,7 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 				if (self->codec_type == CT_H264 || self->codec_type == CT_VC1)
 				{
 					size_t codec_data_len = GST_BUFFER_SIZE(self->codec_data);
-					memcpy(pes_header + pes_header_len, GST_BUFFER_DATA(self->codec_data), codec_data_len);
+					memcpy(pes_header + pes_header_len, codec_data, codec_data_size);
 					pes_header_len += codec_data_len;
 				}
 				
@@ -1129,7 +1128,7 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 							memcpy(tmp+tmp_len, data+cd_pos, len);
 							tmp_len += len;
 							self->codec_data = gst_buffer_new_and_alloc(tmp_len);
-							memcpy(GST_BUFFER_DATA(self->codec_data), tmp, tmp_len);
+							gst_buffer_fill(self->codec_data, 0, tmp, tmp_len);
 							self->h264_nal_len_size = (data[4] & 0x03) + 1;
 						}
 						else

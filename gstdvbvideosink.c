@@ -92,15 +92,16 @@ typedef struct video_codec_data
 #define VIDEO_SET_CODEC_DATA _IOW('o', 80, video_codec_data_t)
 #endif
 
-#if defined(AZBOX)
+/*
 #define VIDEO_RESET_STC                	_IO('o', 81)
 #define VIDEO_STC_PLAY					_IO('o', 82)
 #define VIDEO_STC_STOP					_IO('o', 83)
+*/
 #define VIDEO_FFW						_IO('o', 84)
 #define VIDEO_FBW						_IO('o', 85)
 #define VIDEO_DIVX						_IO('o', 86)
 #define VIDEO_MPEG4_PACKED				_IO('o', 87)
-#endif
+
 
 #ifdef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
 struct bitstream
@@ -1276,7 +1277,7 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		}
 		if (self->playing)
 		{
-			if (self->fd >= 0) ioctl(self->fd, VIDEO_STC_STOP, 0);
+			if (self->fd >= 0) ioctl(self->fd, VIDEO_STOP, 0);
 			self->playing = FALSE;
 		}
 		if (self->fd < 0 || ioctl(self->fd, VIDEO_SET_STREAMTYPE, self->stream_type) < 0)
@@ -1378,7 +1379,7 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 #endif
 				}
 			}
-			ioctl(self->fd, VIDEO_STC_PLAY);
+			ioctl(self->fd, VIDEO_PLAY);
 		}
 		self->playing = TRUE;
 	}
@@ -1439,7 +1440,7 @@ static gboolean gst_dvbvideosink_stop(GstBaseSink *basesink)
 	{
 		if (self->playing)
 		{
-			ioctl(self->fd, VIDEO_STC_STOP);
+			ioctl(self->fd, VIDEO_STOP);
 			self->playing = FALSE;
 		}
 	
@@ -1514,11 +1515,11 @@ static GstStateChangeReturn gst_dvbvideosink_change_state(GstElement *element, G
 		if (self->fd >= 0)
 		{
 			ioctl(self->fd, VIDEO_SELECT_SOURCE, VIDEO_SOURCE_MEMORY);
-			ioctl(self->fd, VIDEO_RESET_STC);
+			ioctl(self->fd, VIDEO_FREEZE);
 		}
 		break;
 	case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
-		if (self->fd >= 0) ioctl(self->fd, VIDEO_STC_PLAY);
+		if (self->fd >= 0) ioctl(self->fd, VIDEO_PLAY);
 		self->paused = FALSE;
 		GST_INFO_OBJECT (self,"GST_STATE_CHANGE_PAUSED_TO_PLAYING");
 		break;
@@ -1533,7 +1534,7 @@ static GstStateChangeReturn gst_dvbvideosink_change_state(GstElement *element, G
 	case GST_STATE_CHANGE_PLAYING_TO_PAUSED:
 		GST_INFO_OBJECT (self,"GST_STATE_CHANGE_PLAYING_TO_PAUSED");
 		self->paused = TRUE;
-		if (self->fd >= 0) ioctl(self->fd, VIDEO_STC_STOP);
+		if (self->fd >= 0) ioctl(self->fd, VIDEO_STOP);
 		/* wakeup the poll */
 		write(self->unlockfd[1], "\x01", 1);
 		break;

@@ -139,8 +139,8 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 		"framed =(boolean) true; "
 
 #define LPCMCAPS \
-\\		"audio/x-private1-lpcm; "
-\\ as per Openazbox code		
+//		"audio/x-private1-lpcm; "
+// as per Openazbox code		
 		"audio/x-private1-lpcm, " \
 		"framed =(boolean) true; "
 #define DTSCAPS \
@@ -150,8 +150,8 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 		"framed =(boolean) true; "
 
 #define WMACAPS \
-\\		"audio/x-wma; " \
-\\ as per Openazbox code
+//		"audio/x-wma; " \
+// as per Openazbox code
 		"audio/x-wma, " \
 		"framed =(boolean) true; "
 

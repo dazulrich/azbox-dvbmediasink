@@ -928,9 +928,9 @@ if (self->check_if_packed_bitstream)
 */
 				if (self->codec_type == CT_H264 || self->codec_type == CT_VC1)
 				{
-					size_t codec_data_len = GST_BUFFER_SIZE(self->codec_data);
-					memcpy(pes_header + pes_header_len, GST_BUFFER_DATA(self->codec_data), codec_data_len);
-					pes_header_len += codec_data_len;
+					//size_t codec_data_len = GST_BUFFER_SIZE(self->codec_data);
+					memcpy(pes_header + pes_header_len, codec_data, codec_data_size);
+					pes_header_len += codec_data_size;
 				}
 // From OpenazBox version				
 				self->must_send_header = FALSE;
@@ -943,7 +943,7 @@ if (self->check_if_packed_bitstream)
 				{
 #if GST_VERSION_MAJOR >= 1
 					/* we need to write to the buffer */
-					gst_buffer_unmap(buffer, &map);
+				//	gst_buffer_unmap(buffer, &map); //Not In Openazbox
 					if (!gst_buffer_is_writable(buffer))
 					{
 						/* buffer is not writable, create a new buffer to which we can write */
@@ -1235,7 +1235,7 @@ if (self->check_if_packed_bitstream)
 			int pos = 0;
 			while (pos <= data_len - 4)
 			{
-				if (memcmp(&data[pos], "\x00\x00\x01\xb8", 4)) /* find group start code */
+				if (memcmp(&data[pos], "\x00\x00\x01\xb8", 4)) // find group start code 
 				{
 					pos++;
 					continue;

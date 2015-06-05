@@ -105,16 +105,6 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 #ifdef HAVE_MP3
 #define MPEGCAPS \
 		"audio/mpeg, " \
-// Replaced with Openazbox code
-//		"mpegversion = (int) 1, " \
-//		"layer = (int) [ 1, 3 ], " \
-//		"parsed = (boolean) true; " \
-//		"audio/mpeg, " \
-//		"mpegversion = (int) { 2, 4 }, " \
-//		"profile = (string) lc, " \
-//		"stream-format = (string) { raw, adts, adif, loas }, " \
-//		"framed = (boolean) true; "
-
 		"profile = (string) lc, " \
 		"framed =(boolean) true; "
 #else
@@ -122,7 +112,6 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 		"audio/mpeg, " \
 		"mpegversion = (int) 1, " \
 		"layer = (int) [ 1, 2 ], " \
-//		"parsed = (boolean) true; "
 		"framed = (boolean) true; "
 #endif
 
@@ -139,8 +128,6 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 		"framed =(boolean) true; "
 
 #define LPCMCAPS \
-//		"audio/x-private1-lpcm; "
-// as per Openazbox code		
 		"audio/x-private1-lpcm, " \
 		"framed =(boolean) true; "
 #define DTSCAPS \
@@ -150,8 +137,6 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 		"framed =(boolean) true; "
 
 #define WMACAPS \
-//		"audio/x-wma; " \
-// as per Openazbox code
 		"audio/x-wma, " \
 		"framed =(boolean) true; "
 

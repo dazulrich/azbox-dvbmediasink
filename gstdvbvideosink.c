@@ -1880,10 +1880,11 @@ static gboolean gst_dvbvideosink_stop(GstBaseSink *basesink)
 			ioctl(self->fd, VIDEO_SLOWMOTION, 0);
 			ioctl(self->fd, VIDEO_FAST_FORWARD, 0);
 			self->rate = 1.0;
+		}
 */
 // Use Openazbox code
 		self->rate = 1.0;
-		}
+
 		ioctl(self->fd, VIDEO_SELECT_SOURCE, VIDEO_SOURCE_DEMUX);
 		close(self->fd);
 		self->fd = -1;

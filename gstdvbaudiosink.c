@@ -105,16 +105,16 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 #ifdef HAVE_MP3
 #define MPEGCAPS \
 		"audio/mpeg, " \
-/* Repalced with Openazbox code
-		"mpegversion = (int) 1, " \
-		"layer = (int) [ 1, 3 ], " \
-		"parsed = (boolean) true; " \
-		"audio/mpeg, " \
-		"mpegversion = (int) { 2, 4 }, " \
-		"profile = (string) lc, " \
-		"stream-format = (string) { raw, adts, adif, loas }, " \
-		"framed = (boolean) true; "
-*/
+// Replaced with Openazbox code
+//		"mpegversion = (int) 1, " \
+//		"layer = (int) [ 1, 3 ], " \
+//		"parsed = (boolean) true; " \
+//		"audio/mpeg, " \
+//		"mpegversion = (int) { 2, 4 }, " \
+//		"profile = (string) lc, " \
+//		"stream-format = (string) { raw, adts, adif, loas }, " \
+//		"framed = (boolean) true; "
+
 		"profile = (string) lc, " \
 		"framed =(boolean) true; "
 #else

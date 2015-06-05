@@ -594,8 +594,8 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		GST_INFO_OBJECT(self, "MIMETYPE %s(DVD Audio - 2 byte skipping)",type);
 		bypass = AUDIOTYPE_AC3_PLUS;
 		self->skip = 2;
-*/
 	}
+*/
 	else if (!strcmp(type, "audio/x-private1-lpcm"))
 	{
 		GST_INFO_OBJECT(self, "MIMETYPE %s(DVD Audio)",type);
@@ -886,6 +886,7 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 		gboolean update;
 		gdouble rate;
 		gint64 start, end, pos;
+		int skip = 0;
 		gst_event_parse_new_segment(event, &update, &rate, &format, &start, &end, &pos);
 #else
 	case GST_EVENT_SEGMENT:
@@ -894,6 +895,7 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 		GstFormat format;
 		gdouble rate;
 		guint64 start, end, pos;
+		int skip = 0;
 		gst_event_parse_segment(event, &segment);
 		format = segment->format;
 		rate = segment->rate;

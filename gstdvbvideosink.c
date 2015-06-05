@@ -1633,7 +1633,7 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 				
 					ioctl(self->fd, VIDEO_DIVX, divxdata);
 				
-					streamtype = 13;
+					self->stream_type = STREAMTYPE_DIVX311;
 					self->codec_type = CT_DIVX311;
 					GST_INFO_OBJECT (self, "MIMETYPE video/x-divx vers. 3 -> VIDEO_SET_STREAMTYPE, 13");
 			}
@@ -1881,7 +1881,7 @@ static gboolean gst_dvbvideosink_stop(GstBaseSink *basesink)
 			ioctl(self->fd, VIDEO_FAST_FORWARD, 0);
 			self->rate = 1.0;
 */
-//Use Openazbox code
+// Use Openazbox code
 		self->rate = 1.0;
 		}
 		ioctl(self->fd, VIDEO_SELECT_SOURCE, VIDEO_SOURCE_DEMUX);

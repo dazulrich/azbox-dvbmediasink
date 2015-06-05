@@ -843,7 +843,7 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 			}
 		}
 	}
-
+#endif
 /*	use Openazbox call
 if (self->must_pack_bitstream) 
 */
@@ -875,7 +875,6 @@ if (self->check_if_packed_bitstream)
 		self->check_if_packed_bitstream = FALSE;
 	}
 
-// #endif
 	pes_header[0] = 0;
 	pes_header[1] = 0;
 	pes_header[2] = 1;

@@ -770,6 +770,8 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 		codec_data_size = GST_BUFFER_SIZE(self->codec_data);
 	}
 #else
+*/
+#if GST_VERSION_MAJOR >= 1
 	GstMapInfo map, pesheadermap, codecdatamap;
 	gst_buffer_map(buffer, &map, GST_MAP_READ);
 	original_data = data = map.data;
@@ -783,7 +785,7 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 		codec_data_size = codecdatamap.size;
 	}
 #endif
-*/
+
 
 #ifdef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
 	gboolean commit_prev_frame_data = FALSE, cache_prev_frame = FALSE;
@@ -943,7 +945,7 @@ if (self->check_if_packed_bitstream)
 				{
 #if GST_VERSION_MAJOR >= 1
 					/* we need to write to the buffer */
-				//	gst_buffer_unmap(buffer, &map); //Not In Openazbox
+					gst_buffer_unmap(buffer, &map); //Not In Openazbox
 					if (!gst_buffer_is_writable(buffer))
 					{
 						/* buffer is not writable, create a new buffer to which we can write */
@@ -1584,12 +1586,12 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 				{
 					0x00, 0x00, 0x01, 0xE0, 0x00, 0x34, 0x80, 0x80, // PES HEADER
 					0x05, 0x2F, 0xFF, 0xFF, 0xFF, 0xFF, 
-					0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x20, /* 0 .. 7 */
-					0x08, 0xC8, 0x0D, 0x40, 0x00, 0x53, 0x88, 0x40, /* 8 .. 15 */
-					0x0C, 0x40, 0x01, 0x90, 0x00, 0x97, 0x53, 0x0A, /* 16 .. 24 */
+					0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x20, // 0 .. 7 //
+					0x08, 0xC8, 0x0D, 0x40, 0x00, 0x53, 0x88, 0x40, // 8 .. 15 //
+					0x0C, 0x40, 0x01, 0x90, 0x00, 0x97, 0x53, 0x0A, // 16 .. 24 //
 					0x00, 0x00, 0x00, 0x00,
-					0x30, 0x7F, 0x00, 0x00, 0x01, 0xB2, 0x44, 0x69, /* 0 .. 7 */
-					0x76, 0x58, 0x33, 0x31, 0x31, 0x41, 0x4E, 0x44  /* 8 .. 15 */
+					0x30, 0x7F, 0x00, 0x00, 0x01, 0xB2, 0x44, 0x69, // 0 .. 7 //
+					0x76, 0x58, 0x33, 0x31, 0x31, 0x41, 0x4E, 0x44  // 8 .. 15 //
 				};
 				self->codec_data = gst_buffer_new_and_alloc(63);
 				guint8 *data;

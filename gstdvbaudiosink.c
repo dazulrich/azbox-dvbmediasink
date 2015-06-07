@@ -77,15 +77,19 @@
 #include <gst/gst.h>
 #include <gst/audio/audio.h>
 #include <gst/base/gstbasesink.h>
+#include <gst/audio/gstaudiodecoder.h>
 
 #include "common.h"
 #include "gstdvbaudiosink.h"
 #include "gstdvbsink-marshal.h"
 
-//From Openazbox code
+#define AZBOX
+
+
 #define AUDIO_RESET_STC                	_IO('o', 30)
 #define AUDIO_STC_PLAY					_IO('o', 31)
 #define AUDIO_STC_STOP					_IO('o', 32)
+
 #define AUDIO_FFW						_IO('o', 33)
 #define AUDIO_FBW						_IO('o', 34)
 #define AUDIO_SET_CODEC_DATA 			_IO('o', 35)
@@ -102,17 +106,27 @@ enum
 
 static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 
+#if defined(HAVE_DTSDOWNMIX) && !defined(HAVE_DTS)
+#define HAVE_DTS
+#endif
+
 #ifdef HAVE_MP3
 #define MPEGCAPS \
 		"audio/mpeg, " \
+		"mpegversion = (int) 1, " \
+		"layer = (int) [ 1, 3 ], " \
+		"parsed = (boolean) true; " \
+		"audio/mpeg, " \
+		"mpegversion = (int) { 2, 4 }, " \
 		"profile = (string) lc, " \
-		"framed =(boolean) true; "
+		"stream-format = (string) { raw, adts, adif, loas }, " \
+		"framed = (boolean) true; "
 #else
 #define MPEGCAPS \
 		"audio/mpeg, " \
 		"mpegversion = (int) 1, " \
 		"layer = (int) [ 1, 2 ], " \
-		"framed = (boolean) true; "
+		"parsed = (boolean) true; "
 #endif
 
 #define AC3CAPS \
@@ -121,15 +135,10 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 		"audio/x-private1-ac3, " \
 		"framed =(boolean) true; "
 
-#define EAC3CAPS \
-		"audio/x-eac3, " \
-		"framed =(boolean) true; " \
-		"audio/x-private1-eac3, " \
-		"framed =(boolean) true; "
-
 #define LPCMCAPS \
 		"audio/x-private1-lpcm, " \
 		"framed =(boolean) true; "
+
 #define DTSCAPS \
 		"audio/x-dts, " \
 		"framed =(boolean) true; " \
@@ -137,47 +146,17 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 		"framed =(boolean) true; "
 
 #define WMACAPS \
-		"audio/x-wma, " \
-		"framed =(boolean) true; "
+		"audio/x-wma; " \
 
-#define AMRCAPS \
-		"audio/AMR, " \
-		"rate = (int) {8000, 16000}, channels = (int) 1; "
 
-#if GST_VERSION_MAJOR < 1
-#define XRAW "audio/x-raw-int"
-#define PCMCAPS \
-		"audio/x-raw-int, " \
-		"endianness = (int) { " G_STRINGIFY(G_BYTE_ORDER) " }, " \
-		"signed = (boolean) { TRUE, FALSE }, " \
-		"width = (int) 32, " \
-		"depth = (int) 32, " \
-		"rate = (int) [ 1, " MAX_PCM_RATE " ], " "channels = (int) [ 1, 2 ]; " \
-		"audio/x-raw-int, " \
-		"endianness = (int) { " G_STRINGIFY(G_BYTE_ORDER) " }, " \
-		"signed = (boolean) { TRUE, FALSE }, " \
-		"width = (int) 24, " \
-		"depth = (int) 24, " \
-		"rate = (int) [ 1, " MAX_PCM_RATE " ], " "channels = (int) [ 1, 2 ]; " \
-		"audio/x-raw-int, " \
-		"endianness = (int) { " G_STRINGIFY(G_BYTE_ORDER) " }, " \
-		"signed = (boolean) { TRUE, FALSE }, " \
-		"width = (int) 16, " \
-		"depth = (int) 16, " \
-		"rate = (int) [ 1, " MAX_PCM_RATE " ], " "channels = (int) [ 1, 2 ]; " \
-		"audio/x-raw-int, " \
-		"signed = (boolean) { TRUE, FALSE }, " \
-		"width = (int) 8, " \
-		"depth = (int) 8, " \
-		"rate = (int) [ 1, " MAX_PCM_RATE " ], " "channels = (int) [ 1, 2 ];"
-#else
 #define XRAW "audio/x-raw"
+
 #define PCMCAPS \
 		"audio/x-raw, " \
 		"format = (string) { "GST_AUDIO_NE(S32)", "GST_AUDIO_NE(S24)", "GST_AUDIO_NE(S16)", S8, "GST_AUDIO_NE(U32)", "GST_AUDIO_NE(U24)", "GST_AUDIO_NE(U16)", U8 }, " \
 		"layout = (string) { interleaved, non-interleaved }, " \
-		"rate = (int) [ 1, " MAX_PCM_RATE " ], " "channels = (int) [ 1, 2 ]; "
-#endif
+		"rate = (int) [ 1, 48000 ], " "channels = (int) [ 1, 2 ]; "
+
 
 static GstStaticPadTemplate sink_factory =
 GST_STATIC_PAD_TEMPLATE(
@@ -187,9 +166,6 @@ GST_STATIC_PAD_TEMPLATE(
 	GST_STATIC_CAPS(
 		MPEGCAPS 
 		AC3CAPS
-#ifdef HAVE_EAC3
-		EAC3CAPS
-#endif
 #ifdef HAVE_DTS
 		DTSCAPS
 #endif
@@ -199,41 +175,19 @@ GST_STATIC_PAD_TEMPLATE(
 #ifdef HAVE_WMA
 		WMACAPS
 #endif
-#ifdef HAVE_AMR
-		AMRCAPS
-#endif
 #ifdef HAVE_PCM
 		PCMCAPS
 #endif
 	)
 );
 
-#if GST_VERSION_MAJOR < 1
-static void gst_dvbaudiosink_init(GstDVBAudioSink *self, GstDVBAudioSinkClass *gclass);
-#else
 static void gst_dvbaudiosink_init(GstDVBAudioSink *self);
-#endif
 
 #define DEBUG_INIT \
 	GST_DEBUG_CATEGORY_INIT(dvbaudiosink_debug, "dvbaudiosink", 0, "dvbaudiosink element");
 
-#if GST_VERSION_MAJOR < 1
-static void gst_dvbaudiosink_base_init(gpointer self)
-{
-	GstElementClass *element_class = GST_ELEMENT_CLASS(self);
-
-	gst_element_class_add_pad_template(element_class, gst_static_pad_template_get(&sink_factory));
-	gst_element_class_set_details_simple(element_class,
-		"DVB audio sink",
-		"Generic/DVBAudioSink",
-		"Outputs PES into a linuxtv dvb audio device",
-		"");
-}
-GST_BOILERPLATE_FULL(GstDVBAudioSink, gst_dvbaudiosink, GstBaseSink, GST_TYPE_BASE_SINK, DEBUG_INIT);
-#else
 static GstBaseSinkClass *parent_class = NULL;
 G_DEFINE_TYPE_WITH_CODE(GstDVBAudioSink, gst_dvbaudiosink, GST_TYPE_BASE_SINK, DEBUG_INIT);
-#endif
 
 static gboolean gst_dvbaudiosink_start(GstBaseSink * sink);
 static gboolean gst_dvbaudiosink_stop(GstBaseSink * sink);
@@ -242,15 +196,13 @@ static GstFlowReturn gst_dvbaudiosink_render(GstBaseSink * sink, GstBuffer * buf
 static gboolean gst_dvbaudiosink_unlock(GstBaseSink * basesink);
 static gboolean gst_dvbaudiosink_unlock_stop(GstBaseSink * basesink);
 static gboolean gst_dvbaudiosink_set_caps(GstBaseSink * sink, GstCaps * caps);
-#if GST_VERSION_MAJOR < 1
-// static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *basesink);
-// Use Opanazbox
-static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *sink);
-#else
-static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *basesink, GstCaps *filter);
-#endif
+static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink * sink, GstCaps *filter);
 static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement * element, GstStateChange transition);
 static gint64 gst_dvbaudiosink_get_decoder_time(GstDVBAudioSink *self);
+#ifdef DREAMBOX
+static gboolean get_dtsdownmix_setting();
+static gboolean get_dtsdownmix_pause();
+#endif
 
 /* initialize the plugin's class */
 static void gst_dvbaudiosink_class_init(GstDVBAudioSinkClass *self)
@@ -259,7 +211,6 @@ static void gst_dvbaudiosink_class_init(GstDVBAudioSinkClass *self)
 	GstBaseSinkClass *gstbasesink_class = GST_BASE_SINK_CLASS(self);
 	GstElementClass *element_class = GST_ELEMENT_CLASS(self);
 
-#if GST_VERSION_MAJOR >= 1
 	parent_class = g_type_class_peek_parent(self);
 
 	gst_element_class_add_pad_template(element_class, gst_static_pad_template_get(&sink_factory));
@@ -268,7 +219,6 @@ static void gst_dvbaudiosink_class_init(GstDVBAudioSinkClass *self)
 		"Generic/DVBAudioSink",
 		"Outputs PES into a linuxtv dvb audio device",
 		"");
-#endif
 
 	gstbasesink_class->start = GST_DEBUG_FUNCPTR(gst_dvbaudiosink_start);
 	gstbasesink_class->stop = GST_DEBUG_FUNCPTR(gst_dvbaudiosink_stop);
@@ -296,11 +246,7 @@ static void gst_dvbaudiosink_class_init(GstDVBAudioSinkClass *self)
  * set functions
  * initialize structure
  */
-#if GST_VERSION_MAJOR < 1
-static void gst_dvbaudiosink_init(GstDVBAudioSink *self, GstDVBAudioSinkClass *gclass)
-#else
 static void gst_dvbaudiosink_init(GstDVBAudioSink *self)
-#endif
 {
 	self->codec_data = NULL;
 	self->bypass = AUDIOTYPE_UNKNOWN;
@@ -328,7 +274,26 @@ static gint64 gst_dvbaudiosink_get_decoder_time(GstDVBAudioSink *self)
 {
 	gint64 cur = 0;
 	if (self->fd < 0 || !self->playing || !self->pts_written) return GST_CLOCK_TIME_NONE;
-
+#ifdef DREAMBOX
+	if (self->pts_written)
+	{
+		ioctl(self->fd, AUDIO_GET_PTS, &cur);
+		if (cur)
+		{
+			self->lastpts = cur;
+		}
+		else
+		{
+			cur = self->lastpts;
+		}
+		cur *= 11111;
+		cur -= self->timestamp_offset;
+	}
+	else
+	{
+		cur = 0;
+	}
+#else
 	ioctl(self->fd, AUDIO_GET_PTS, &cur);
 	if (cur)
 	{
@@ -339,8 +304,10 @@ static gint64 gst_dvbaudiosink_get_decoder_time(GstDVBAudioSink *self)
 		cur = self->lastpts;
 	}
 	cur *= 11111;
+	cur -= self->timestamp_offset;
+#endif
 
-	return cur - self->timestamp_offset;
+	return cur;
 }
 
 static gboolean gst_dvbaudiosink_unlock(GstBaseSink *basesink)
@@ -376,51 +343,39 @@ static gboolean get_downmix_setting()
 }
 #endif
 
-#if GST_VERSION_MAJOR < 1
-static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *basesink)
-#else
 static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink *basesink, GstCaps *filter)
-#endif
 {
 	GstCaps *caps = gst_caps_from_string(
 		MPEGCAPS 
 		AC3CAPS
-#ifdef HAVE_EAC3
-		EAC3CAPS
-#endif
 #ifdef HAVE_LPCM
 		LPCMCAPS
 #endif
 #ifdef HAVE_WMA
 		WMACAPS
 #endif
-#ifdef HAVE_AMR
-		AMRCAPS
-#endif
 #ifdef HAVE_PCM
 		PCMCAPS
 #endif
 	);
 
-#ifdef HAVE_DTS
-# ifdef HAVE_DTSDOWNMIX
+#if defined(HAVE_DTS) && !defined(HAVE_DTSDOWNMIX)
+	gst_caps_append(caps, gst_caps_from_string(DTSCAPS));
+#endif
+
+#ifdef HAVE_DTSDOWNMIX
 	if (!get_downmix_setting())
 	{
 		gst_caps_append(caps, gst_caps_from_string(DTSCAPS));
 	}
-# else
-	gst_caps_append(caps, gst_caps_from_string(DTSCAPS));
-# endif
 #endif
 
-#if GST_VERSION_MAJOR >= 1
 	if (filter)
 	{
 		GstCaps *intersection = gst_caps_intersect_full(filter, caps, GST_CAPS_INTERSECT_FIRST);
 		gst_caps_unref(caps);
 		caps = intersection;
 	}
-#endif
 	return caps;
 }
 
@@ -479,12 +434,8 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 					GST_INFO_OBJECT(self, "MIMETYPE %s version %d(AAC-RAW)", type, mpegversion);
 					if (codec_data)
 					{
-#if GST_VERSION_MAJOR < 1
-						guint8 *h = GST_BUFFER_DATA(gst_value_get_buffer(codec_data));
-#else
 						guint8 h[2];
 						gst_buffer_extract(gst_value_get_buffer(codec_data), 0, h, sizeof(h));
-#endif
 						guint8 obj_type =((h[0] & 0xC) >> 2) + 1;
 						guint8 rate_idx =((h[0] & 0x3) << 1) |((h[1] & 0x80) >> 7);
 						guint8 channels =(h[1] & 0x78) >> 3;
@@ -554,13 +505,6 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		GST_INFO_OBJECT(self, "MIMETYPE %s",type);
 		bypass = AUDIOTYPE_AC3;
 	}
-/* Not in Openazbox code
-	else if (!strcmp(type, "audio/x-eac3"))
-	{
-		GST_INFO_OBJECT(self, "MIMETYPE %s",type);
-		bypass = AUDIOTYPE_AC3_PLUS;
-	}
-*/
 	else if (!strcmp(type, "audio/x-private1-dts"))
 	{
 		GST_INFO_OBJECT(self, "MIMETYPE %s(DVD Audio - 2 byte skipping)",type);
@@ -573,14 +517,6 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		bypass = AUDIOTYPE_AC3;
 		self->skip = 2;
 	}
-/* Not in Openazbox code
-	else if (!strcmp(type, "audio/x-private1-eac3"))
-	{
-		GST_INFO_OBJECT(self, "MIMETYPE %s(DVD Audio - 2 byte skipping)",type);
-		bypass = AUDIOTYPE_AC3_PLUS;
-		self->skip = 2;
-	}
-*/
 	else if (!strcmp(type, "audio/x-private1-lpcm"))
 	{
 		GST_INFO_OBJECT(self, "MIMETYPE %s(DVD Audio)",type);
@@ -605,19 +541,10 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		bypass = (wmaversion > 2) ? AUDIOTYPE_WMA_PRO : AUDIOTYPE_WMA;
 		if (codec_data)
 		{
-			guint8 *data, *tdata;
+			guint8 *data;
 			guint8 *codec_data_pointer;
 			gint codec_data_size;
 			gint codecid = 0x160 + wmaversion - 1;
-#if GST_VERSION_MAJOR < 1
-			codec_data_size = GST_BUFFER_SIZE(gst_value_get_buffer(codec_data));
-			codec_data_pointer = GST_BUFFER_DATA(gst_value_get_buffer(codec_data));
-/* use openazbox version
-			self->codec_data = gst_buffer_new_and_alloc(18 + codec_data_size);
-			tdata = data = GST_BUFFER_DATA(self->codec_data);
-*/
-			tdata = data = (guint8*)g_malloc(18 + codec_data_size);	
-#else
 			GstMapInfo map, codecdatamap;
 			gst_buffer_map(gst_value_get_buffer(codec_data), &codecdatamap, GST_MAP_READ);
 			codec_data_pointer = codecdatamap.data;
@@ -625,7 +552,6 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 			self->codec_data = gst_buffer_new_and_alloc(18 + codec_data_size);
 			gst_buffer_map(self->codec_data, &map, GST_MAP_WRITE);
 			data = map.data;
-#endif
 			/* codec tag */
 			*(data++) = codecid & 0xff;
 			*(data++) = (codecid >> 8) & 0xff;
@@ -653,48 +579,22 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 			*(data++) = codec_data_size & 0xff;
 			*(data++) = (codec_data_size >> 8) & 0xff;
 			memcpy(data, codec_data_pointer, codec_data_size);
-// from Openazbox code
-			ioctl(self->fd, AUDIO_SET_CODEC_DATA, tdata);
-			g_free(tdata);
-#if GST_VERSION_MAJOR >= 1
 			gst_buffer_unmap(self->codec_data, &map);
 			gst_buffer_unmap(gst_value_get_buffer(codec_data), &codecdatamap);
-#endif
 		}
-	}
-	else if (!strcmp(type, "audio/AMR"))
-	{
-		const GValue *codec_data = gst_structure_get_value(structure, "codec_data");
-		if (codec_data)
-		{
-			self->codec_data = gst_buffer_copy(gst_value_get_buffer(codec_data));
-		}
-		GST_INFO_OBJECT(self, "MIMETYPE %s",type);
-		bypass = AUDIOTYPE_AMR;
 	}
 	else if (!strcmp(type, XRAW))
 	{
-		guint8 *data, *tdata;
+		guint8 *data;
 		gint size;
 		gint format = 0x01;
-#if GST_VERSION_MAJOR >= 1
 		const gchar *formatstring = NULL;
-#endif
 		gint width = 0, depth = 0, rate = 0, channels, block_align, byterate;
 		self->codec_data = gst_buffer_new_and_alloc(18);
-#if GST_VERSION_MAJOR < 1
-		tdata = data = GST_BUFFER_DATA(self->codec_data);
-		size = GST_BUFFER_SIZE(self->codec_data);
-#else
 		GstMapInfo map;
 		gst_buffer_map(self->codec_data, &map, GST_MAP_WRITE);
-		tdata = data = map.data;
+		data = map.data;
 		size = map.size;
-#endif
-#if GST_VERSION_MAJOR < 1
-		gst_structure_get_int(structure, "width", &width);
-		gst_structure_get_int(structure, "depth", &depth);
-#else
 		formatstring = gst_structure_get_string(structure, "format");
 		if (formatstring)
 		{
@@ -715,7 +615,6 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 				width = depth = 8;
 			}
 		}
-#endif
 		gst_structure_get_int(structure, "rate", &rate);
 		gst_structure_get_int(structure, "channels", &channels);
 		byterate = channels * rate * width / 8;
@@ -747,14 +646,9 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		self->fixed_buffersize *= channels * depth / 8;
 		self->fixed_buffertimestamp = GST_CLOCK_TIME_NONE;
 		self->fixed_bufferduration = GST_SECOND * (GstClockTime)self->fixed_buffersize / (GstClockTime)byterate;
-// Openazbox code
-		ioctl(self->fd, AUDIO_SET_CODEC_DATA, tdata);
-		g_free(tdata);
 		GST_INFO_OBJECT(self, "MIMETYPE %s", type);
 		bypass = AUDIOTYPE_RAW;
-#if GST_VERSION_MAJOR >= 1
 		gst_buffer_unmap(self->codec_data, &map);
-#endif
 	}
 	else
 	{
@@ -766,7 +660,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 
 	if (self->playing)
 	{
-		if (self->fd >= 0) ioctl(self->fd, AUDIO_STOP, 0); // Openazbox: AUDIO_STC_STOP
+		if (self->fd >= 0) ioctl(self->fd, AUDIO_STC_STOP, 0);
 		self->playing = FALSE;
 	}
 	if (self->fd < 0 || ioctl(self->fd, AUDIO_SET_BYPASS_MODE, bypass) < 0)
@@ -774,7 +668,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		GST_ELEMENT_ERROR(self, STREAM, TYPE_NOT_FOUND,(NULL),("hardware decoder can't be set to bypass mode type %s", type));
 		return FALSE;
 	}
-	if (self->fd >= 0) ioctl(self->fd, AUDIO_PLAY);  // Openazbox: AUDIO_STC_PLAY
+	if (self->fd >= 0) ioctl(self->fd, AUDIO_STC_PLAY);
 	self->playing = TRUE;
 
 	self->bypass = bypass;
@@ -784,7 +678,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 {
 	GstDVBAudioSink *self = GST_DVBAUDIOSINK(sink);
-	GST_DEBUG_OBJECT(self, "EVENT %s", gst_event_type_get_name(GST_EVENT_TYPE(event)));
+	GST_INFO_OBJECT(self, "EVENT %s", gst_event_type_get_name(GST_EVENT_TYPE(event)));
 	gboolean ret = TRUE;
 
 	switch (GST_EVENT_TYPE(event))
@@ -815,17 +709,13 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 		break;
 	case GST_EVENT_EOS:
 	{
+		gboolean pass_eos = FALSE;
 		struct pollfd pfd[2];
 		pfd[0].fd = self->unlockfd[0];
 		pfd[0].events = POLLIN;
 		pfd[1].fd = self->fd;
 		pfd[1].events = POLLIN;
-
-#if GST_VERSION_MAJOR < 1
-		GST_PAD_PREROLL_UNLOCK(sink->sinkpad);
-#else
 		GST_BASE_SINK_PREROLL_UNLOCK(sink);
-#endif
 		while (1)
 		{
 			int retval = poll(pfd, 2, 250);
@@ -856,24 +746,10 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 				break;
 			}
 		}
-#if GST_VERSION_MAJOR < 1
-		GST_PAD_PREROLL_LOCK(sink->sinkpad);
-#else
 		GST_BASE_SINK_PREROLL_LOCK(sink);
-#endif
 		if (ret) ret = GST_BASE_SINK_CLASS(parent_class)->event(sink, event);
 		break;
 	}
-#if GST_VERSION_MAJOR < 1
-	case GST_EVENT_NEWSEGMENT:
-	{
-		GstFormat format;
-		gboolean update;
-		gdouble rate;
-		gint64 start, end, pos;
-		int skip = 0;
-		gst_event_parse_new_segment(event, &update, &rate, &format, &start, &end, &pos);
-#else
 	case GST_EVENT_SEGMENT:
 	{
 		const GstSegment *segment;
@@ -887,66 +763,50 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 		start = segment->start;
 		end = segment->stop;
 		pos = segment->position;
-#endif
-		GST_DEBUG_OBJECT(self, "GST_EVENT_NEWSEGMENT rate=%f %d\n", rate, format);
-		
+
+		GST_INFO_OBJECT(self, "GST_EVENT_SEGMENT rate=%f format=%d start=%"G_GUINT64_FORMAT " position=%"G_GUINT64_FORMAT, rate, format, start, pos);
+        /* fixme on dreambox this does not work att all and I gues on any box*/
+		/* the video0 can't be opened since its in use */
+		/* The try off opening video0 makes sync issues worse than they already are */
 		if (format == GST_FORMAT_TIME)
 		{
 			self->timestamp_offset = start - pos;
 			if (rate != self->rate)
 			{
-/* Not in Openazbox code
-				int video_fd = open("/dev/dvb/adapter0/video0", O_RDWR);
-				if (video_fd >= 0)
-				{
-					int skip = 0, repeat = 0;
-					if (rate > 1.0)
-					{
-						skip = (int)rate;
-					}
-					else if (rate < 1.0)
-					{
-						repeat = 1.0 / rate;
-					}
-					ioctl(video_fd, VIDEO_SLOWMOTION, repeat);
-					ioctl(video_fd, VIDEO_FAST_FORWARD, skip);
-					ioctl(video_fd, VIDEO_CONTINUE);
-					close(video_fd);
-					video_fd = -1;
-				}
-*/
 				skip = (int)rate;
+				
 				if (rate > 1.0)
 					ioctl(self->fd, AUDIO_FFW, skip);
+
 				else if (rate < 1.0)					
 					ioctl(self->fd, AUDIO_FBW, skip);										
+					
 				else										
-					ioctl(self->fd, AUDIO_FFW, skip);
+					ioctl(self->fd, AUDIO_FFW, skip);						
+								
 				self->rate = rate;
 			}
 		}
 		break;
 	}
-	case GST_EVENT_CAPS:
+ 	case GST_EVENT_CAPS:
 	{
 		GstCaps *caps;
 		gst_event_parse_caps(event, &caps);
 		if (caps)
 		{
 			ret = gst_dvbaudiosink_set_caps(sink, caps);
-			//gst_caps_unref(caps);
 			if (ret != TRUE)
 			{
 				//GST_ELEMENT_ERROR(self, STREAM, FORMAT,(NULL), ("Set caps failed. Stop render."));
 			}
 		}
+		break;
 	}
-
 	default:
 		ret = GST_BASE_SINK_CLASS(parent_class)->event(sink, event);
 		break;
 	}
-
 	return ret;
 }
 
@@ -955,18 +815,11 @@ static int audio_write(GstDVBAudioSink *self, GstBuffer *buffer, size_t start, s
 	size_t written = start;
 	size_t len = end;
 	struct pollfd pfd[2];
-
-// Not in Openazbox code... 
 	guint8 *data;
 	int retval = 0;
-#if GST_VERSION_MAJOR < 1
-	data = GST_BUFFER_DATA(buffer);
-#else
 	GstMapInfo map;
 	gst_buffer_map(buffer, &map, GST_MAP_READ);
 	data = map.data;
-#endif
-// not in code
 
 	pfd[0].fd = self->unlockfd[0];
 	pfd[0].events = POLLIN;
@@ -1022,17 +875,11 @@ static int audio_write(GstDVBAudioSink *self, GstBuffer *buffer, size_t start, s
 			if (queue_front(&self->queue, &queuebuffer, &queuestart, &queueend) >= 0)
 			{
 				guint8 *queuedata;
-#if GST_VERSION_MAJOR < 1
-				queuedata = GST_BUFFER_DATA(queuebuffer);
-#else
 				GstMapInfo queuemap;
 				gst_buffer_map(queuebuffer, &queuemap, GST_MAP_READ);
 				queuedata = queuemap.data;
-#endif
 				int wr = write(self->fd, queuedata + queuestart, queueend - queuestart);
-#if GST_VERSION_MAJOR >= 1
 				gst_buffer_unmap(queuebuffer, &queuemap);
-#endif
 				if (wr < 0)
 				{
 					switch(errno)
@@ -1079,9 +926,7 @@ static int audio_write(GstDVBAudioSink *self, GstBuffer *buffer, size_t start, s
 		}
 	} while (written < len);
 
-#if GST_VERSION_MAJOR >= 1
 	gst_buffer_unmap(buffer, &map);
-#endif
 	return retval;
 }
 
@@ -1095,29 +940,36 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 	gsize codec_data_size = 0;
 	GstClockTime timestamp = self->timestamp;
 	GstClockTime duration = GST_BUFFER_DURATION(buffer);
-#if GST_VERSION_MAJOR < 1
-	pes_header = GST_BUFFER_DATA(self->pesheader_buffer);
-	original_data = data = GST_BUFFER_DATA(buffer);
-	size = GST_BUFFER_SIZE(buffer);
-	if (self->codec_data)
-	{
-		codec_data = GST_BUFFER_DATA(self->codec_data);
-		codec_data_size = GST_BUFFER_SIZE(self->codec_data);
-	}
-#else
 	GstMapInfo map, pesheadermap, codecdatamap;
 	gst_buffer_map(buffer, &map, GST_MAP_READ);
 	original_data = data = map.data;
 	size = map.size;
 	gst_buffer_map(self->pesheader_buffer, &pesheadermap, GST_MAP_WRITE);
 	pes_header = pesheadermap.data;
+#ifdef DREAMBOX
+	int i = 0;
+	while (self->ok_to_write == 0 && i < 100)
+	{
+		if(!get_dtsdownmix_setting())
+		{
+			i++;
+		}
+		else
+		{
+			if (self->fd >= 0) {ioctl(self->fd, AUDIO_CONTINUE);}
+			self->paused = FALSE;
+			self->playing = TRUE;
+			self->ok_to_write = 1;
+			i = 0;
+		}
+	}
+#endif
 	if (self->codec_data)
 	{
 		gst_buffer_map(self->codec_data, &codecdatamap, GST_MAP_READ);
 		codec_data = codecdatamap.data;
 		codec_data_size = codecdatamap.size;
 	}
-#endif
 	/* 
 	 * Some audioformats have incorrect timestamps, 
 	 * so if we have both a timestamp and a duration, 
@@ -1125,11 +977,7 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 	 */
 	if (timestamp == GST_CLOCK_TIME_NONE)
 	{
-#if GST_VERSION_MAJOR < 1
-		timestamp = GST_BUFFER_TIMESTAMP(buffer);
-#else
 		timestamp = GST_BUFFER_PTS(buffer);
-#endif
 		if (timestamp != GST_CLOCK_TIME_NONE && duration != GST_CLOCK_TIME_NONE)
 		{
 			self->timestamp = timestamp + duration;
@@ -1143,11 +991,7 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 		}
 		else
 		{
-#if GST_VERSION_MAJOR < 1
-			timestamp = GST_BUFFER_TIMESTAMP(buffer);
-#else
 			timestamp = GST_BUFFER_PTS(buffer);
-#endif
 			self->timestamp = GST_CLOCK_TIME_NONE;
 		}
 	}
@@ -1214,31 +1058,23 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 		pes_header[pes_header_len++] = 0xa0;
 		pes_header[pes_header_len++] = 0x01;
 	}
-/* Not in Openazbox code
 	else if (self->bypass == AUDIOTYPE_WMA || self->bypass == AUDIOTYPE_WMA_PRO)
 	{
 		if (self->codec_data)
 		{
 			size_t payload_len = size;
+#if defined(DREAMBOX) || defined(DAGS)
+			pes_header[pes_header_len++] = 0x42; // B
+			pes_header[pes_header_len++] = 0x43; // C
+			pes_header[pes_header_len++] = 0x4D; // M
+			pes_header[pes_header_len++] = 0x41; // A
+#endif
 			pes_header[pes_header_len++] = (payload_len >> 24) & 0xff;
 			pes_header[pes_header_len++] = (payload_len >> 16) & 0xff;
 			pes_header[pes_header_len++] = (payload_len >> 8) & 0xff;
 			pes_header[pes_header_len++] = payload_len & 0xff;
 			memcpy(&pes_header[pes_header_len], codec_data, codec_data_size);
 			pes_header_len += codec_data_size;
-		}
-	}
-	else if (self->bypass == AUDIOTYPE_AMR)
-	{
-		if (self->codec_data && codec_data_size >= 17)
-		{
-			size_t payload_len = size + 17;
-			pes_header[pes_header_len++] = (payload_len >> 24) & 0xff;
-			pes_header[pes_header_len++] = (payload_len >> 16) & 0xff;
-			pes_header[pes_header_len++] = (payload_len >> 8) & 0xff;
-			pes_header[pes_header_len++] = payload_len & 0xff;
-			memcpy(&pes_header[pes_header_len], codec_data + 8, 9);
-			pes_header_len += 9;
 		}
 	}
 	else if (self->bypass == AUDIOTYPE_RAW)
@@ -1246,6 +1082,12 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 		if (self->codec_data && codec_data_size >= 18)
 		{
 			size_t payload_len = size;
+#if defined(DREAMBOX) || defined(DAGS)
+			pes_header[pes_header_len++] = 0x42; // B
+			pes_header[pes_header_len++] = 0x43; // C
+			pes_header[pes_header_len++] = 0x4D; // M
+			pes_header[pes_header_len++] = 0x41; // A
+#endif
 			pes_header[pes_header_len++] = (payload_len >> 24) & 0xff;
 			pes_header[pes_header_len++] = (payload_len >> 16) & 0xff;
 			pes_header[pes_header_len++] = (payload_len >> 8) & 0xff;
@@ -1254,34 +1096,29 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 			pes_header_len += codec_data_size;
 		}
 	}
-*/
 
 	pes_set_payload_size(size + pes_header_len - 6, pes_header);
-
 	if (audio_write(self, self->pesheader_buffer, 0, pes_header_len) < 0) goto error;
 	if (audio_write(self, buffer, data - original_data, data - original_data + size) < 0) goto error;
 	if (timestamp != GST_CLOCK_TIME_NONE)
 	{
 		self->pts_written = TRUE;
 	}
-#if GST_VERSION_MAJOR >= 1
 	gst_buffer_unmap(self->pesheader_buffer, &pesheadermap);
 	if (self->codec_data)
 	{
 		gst_buffer_unmap(self->codec_data, &codecdatamap);
 	}
 	gst_buffer_unmap(buffer, &map);
-#endif
+
 	return GST_FLOW_OK;
 error:
-#if GST_VERSION_MAJOR >= 1
 	gst_buffer_unmap(self->pesheader_buffer, &pesheadermap);
 	if (self->codec_data)
 	{
 		gst_buffer_unmap(self->codec_data, &codecdatamap);
 	}
 	gst_buffer_unmap(buffer, &map);
-#endif
 	{
 		GST_ELEMENT_ERROR(self, RESOURCE, READ,(NULL),
 				("audio write: %s", g_strerror(errno)));
@@ -1297,13 +1134,8 @@ static GstFlowReturn gst_dvbaudiosink_render(GstBaseSink *sink, GstBuffer *buffe
 	GstFlowReturn retval = GST_FLOW_OK;
 	GstClockTime duration = GST_BUFFER_DURATION(buffer);
 	gsize buffersize;
-#if GST_VERSION_MAJOR < 1
-	buffersize = GST_BUFFER_SIZE(buffer);
-	GstClockTime timestamp = GST_BUFFER_TIMESTAMP(buffer);
-#else
 	buffersize = gst_buffer_get_size(buffer);
 	GstClockTime timestamp = GST_BUFFER_PTS(buffer);
-#endif
 
 	if (self->bypass <= AUDIOTYPE_UNKNOWN)
 	{
@@ -1331,35 +1163,20 @@ static GstFlowReturn gst_dvbaudiosink_render(GstBaseSink *sink, GstBuffer *buffe
 	if (self->skip)
 	{
 		GstBuffer *newbuffer;
-#if GST_VERSION_MAJOR < 1
-		newbuffer = gst_buffer_create_sub(buffer, self->skip, buffersize - self->skip);
-		GST_BUFFER_TIMESTAMP(newbuffer) = timestamp;
-#else
 		newbuffer = gst_buffer_copy_region(buffer, GST_BUFFER_COPY_ALL, self->skip, buffersize - self->skip);
 		GST_BUFFER_PTS(newbuffer) = timestamp;
-#endif
 		GST_BUFFER_DURATION(newbuffer) = duration;
 		if (disposebuffer) gst_buffer_unref(disposebuffer);
 		buffer = disposebuffer = newbuffer;
-#if GST_VERSION_MAJOR < 1
-		buffersize = GST_BUFFER_SIZE(buffer);
-#else
 		buffersize = gst_buffer_get_size(buffer);
-#endif
 	}
 
 	if (self->cache)
 	{
 		/* join unrefs both buffers */
-#if GST_VERSION_MAJOR < 1
-		buffer = gst_buffer_join(self->cache, buffer);
-		buffersize = GST_BUFFER_SIZE(buffer);
-		GST_BUFFER_TIMESTAMP(buffer) = timestamp;
-#else
 		buffer = gst_buffer_append(self->cache, buffer);
 		buffersize = gst_buffer_get_size(buffer);
 		GST_BUFFER_PTS(buffer) = timestamp;
-#endif
 		GST_BUFFER_DURATION(buffer) = duration;
 		disposebuffer = buffer;
 		self->cache = NULL;
@@ -1384,15 +1201,9 @@ static GstFlowReturn gst_dvbaudiosink_render(GstBaseSink *sink, GstBuffer *buffe
 				while (index <= buffersize - self->fixed_buffersize)
 				{
 					GstBuffer *block;
-#if GST_VERSION_MAJOR < 1
-					block = gst_buffer_create_sub(buffer, index, self->fixed_buffersize);
-					/* only the first buffer needs the correct timestamp, next buffer timestamps will be ignored (and extrapolated) */
-					GST_BUFFER_TIMESTAMP(block) = self->fixed_buffertimestamp;
-#else
 					block = gst_buffer_copy_region(buffer, GST_BUFFER_COPY_ALL, index, self->fixed_buffersize);
 					/* only the first buffer needs the correct timestamp, next buffer timestamps will be ignored (and extrapolated) */
 					GST_BUFFER_PTS(block) = self->fixed_buffertimestamp;
-#endif
 					GST_BUFFER_DURATION(block) = self->fixed_bufferduration;
 					self->fixed_buffertimestamp += self->fixed_bufferduration;
 					gst_dvbaudiosink_push_buffer(self, block);
@@ -1401,27 +1212,14 @@ static GstFlowReturn gst_dvbaudiosink_render(GstBaseSink *sink, GstBuffer *buffe
 				}
 				if (index < buffersize)
 				{
-#if GST_VERSION_MAJOR < 1
-					self->cache = gst_buffer_create_sub(buffer, index, buffersize - index);
-#else
 					self->cache = gst_buffer_copy_region(buffer, GST_BUFFER_COPY_ALL, index, buffersize - index);
-#endif
 				}
 				retval = GST_FLOW_OK;
 			}
 			else
 			{
 				/* could still be the original buffer, make sure we can write metadata */
-/* Openazbox code for reference
-				gst_buffer_make_metadata_writable(buffer);
-				GST_BUFFER_DURATION(buffer) = self->fixed_bufferduration;
-				retval = gst_dvbaudiosink_push_buffer(self, buffer);
-*/
-#if GST_VERSION_MAJOR < 1
-				if (!gst_buffer_is_metadata_writable(buffer))
-#else
 				if (!gst_buffer_is_writable(buffer))
-#endif
 				{
 					GstBuffer *tmpbuf = gst_buffer_copy(buffer);
 					GST_BUFFER_DURATION(tmpbuf) = self->fixed_bufferduration;
@@ -1486,25 +1284,13 @@ static gboolean gst_dvbaudiosink_stop(GstBaseSink * basesink)
 	{
 		if (self->playing)
 		{
-			ioctl(self->fd, AUDIO_STOP); // Openazbox: AUDIO_STC_STOP)
+			ioctl(self->fd, AUDIO_STC_STOP);
 			self->playing = FALSE;
 		}
 		ioctl(self->fd, AUDIO_SELECT_SOURCE, AUDIO_SOURCE_DEMUX);
-/* Not used in Openazbox code
-		if (self->rate != 1.0)
-		{
-			int video_fd = open("/dev/dvb/adapter0/video0", O_RDWR);
-			if (video_fd >= 0)
-			{
-				ioctl(video_fd, VIDEO_SLOWMOTION, 0);
-				ioctl(video_fd, VIDEO_FAST_FORWARD, 0);
-				close(video_fd);
-			}
-			self->rate = 1.0;
-		}
-*/
+			
 		self->rate = 1.0;
-
+		
 		close(self->fd);
 		self->fd = -1;
 	}
@@ -1550,25 +1336,34 @@ static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement *element, G
 {
 	GstStateChangeReturn ret = GST_STATE_CHANGE_SUCCESS;
 	GstDVBAudioSink *self = GST_DVBAUDIOSINK(element);
+	FILE *f;
 
 	switch(transition)
 	{
 	case GST_STATE_CHANGE_NULL_TO_READY:
-		GST_DEBUG_OBJECT(self,"GST_STATE_CHANGE_NULL_TO_READY");
+		GST_INFO_OBJECT(self,"GST_STATE_CHANGE_NULL_TO_READY");
+		self->ok_to_write = 1;
+#ifdef DREAMBOX
+		f = fopen("/tmp/dtsdownmix", "w");
+		if (f)
+		{
+			fprintf(f,"none\n");
+			fclose(f);
+		}
+#endif
 		break;
 	case GST_STATE_CHANGE_READY_TO_PAUSED:
-		GST_DEBUG_OBJECT(self,"GST_STATE_CHANGE_READY_TO_PAUSED");
+		GST_INFO_OBJECT(self,"GST_STATE_CHANGE_READY_TO_PAUSED");
 		self->paused = TRUE;
-
 		if (self->fd >= 0)
 		{
 			ioctl(self->fd, AUDIO_SELECT_SOURCE, AUDIO_SOURCE_MEMORY);
-			ioctl(self->fd, AUDIO_PAUSE); //Openazbox: AUDIO_RESET_STC
+			ioctl(self->fd,	AUDIO_RESET_STC);			
 		}
 		break;
 	case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
-		GST_DEBUG_OBJECT(self,"GST_STATE_CHANGE_PAUSED_TO_PLAYING");
-		if (self->fd >= 0) ioctl(self->fd, AUDIO_CONTINUE); //Openazbox: AUDIO_STC_PLAY
+		GST_INFO_OBJECT(self,"GST_STATE_CHANGE_PAUSED_TO_PLAYING");
+		if (self->fd >= 0)  ioctl(self->fd, AUDIO_STC_PLAY); 
 		self->paused = FALSE;
 		break;
 	default:
@@ -1580,17 +1375,42 @@ static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement *element, G
 	switch(transition)
 	{
 	case GST_STATE_CHANGE_PLAYING_TO_PAUSED:
-		GST_DEBUG_OBJECT(self,"GST_STATE_CHANGE_PLAYING_TO_PAUSED");
+		GST_INFO_OBJECT(self,"GST_STATE_CHANGE_PLAYING_TO_PAUSED");
 		self->paused = TRUE;
-		if (self->fd >= 0) ioctl(self->fd, AUDIO_PAUSE); //Openazbox: AUDIO_STC_Stop
+		if (self->fd >= 0) ioctl(self->fd, AUDIO_STC_STOP);
 		/* wakeup the poll */
 		write(self->unlockfd[1], "\x01", 1);
+#ifdef DREAMBOX
+		if(get_dtsdownmix_setting())
+		{
+			self->playing = FALSE;
+			f = fopen("/tmp/dtsdownmix", "w");
+			if (f)
+			{
+				fprintf(f,"PAUSE\n");
+				self->ok_to_write = 0;
+				fclose(f);
+			}
+		}
+#endif
 		break;
 	case GST_STATE_CHANGE_PAUSED_TO_READY:
-		GST_DEBUG_OBJECT(self,"GST_STATE_CHANGE_PAUSED_TO_READY");
+		GST_INFO_OBJECT(self,"GST_STATE_CHANGE_PAUSED_TO_READY");
+#ifdef DREAMBOX
+		self->ok_to_write = 1;
+#endif
 		break;
 	case GST_STATE_CHANGE_READY_TO_NULL:
-		GST_DEBUG_OBJECT(self,"GST_STATE_CHANGE_READY_TO_NULL");
+		GST_INFO_OBJECT(self,"GST_STATE_CHANGE_READY_TO_NULL");
+#ifdef DREAMBOX
+		f = fopen("/tmp/dtsdownmix", "w");
+		if (f)
+		{
+			fprintf(f,"none\n");
+			self->ok_to_write = 1;
+			fclose(f);
+		}
+#endif
 		break;
 	default:
 		break;
@@ -1598,7 +1418,40 @@ static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement *element, G
 
 	return ret;
 }
+#ifdef DREAMBOX
+static gboolean get_dtsdownmix_setting()
+{
+	gboolean ret = FALSE;
+	FILE *f;
+	char buffer[10] = {0};
+	f = fopen("/tmp/dtsdownmix", "r");
+	if (f)
+	{
+		fread(buffer, sizeof(buffer), 1, f);
+		fclose(f);
+	}
+	ret = !strncmp(buffer, "PLAYING", 7);
+	return ret;
+}
 
+static gboolean get_dtsdownmix_pause()
+{
+	FILE *f;
+	gboolean ret = FALSE;
+	char buffer[10] = {0};
+	f = fopen("/tmp/dtsdownmix", "r");
+	if (f)
+	{
+		fread(buffer, sizeof(buffer), 1, f);
+		fclose(f);
+	}
+	if(!strncmp(buffer, "PAUSE", 5))
+	{
+		ret = TRUE;
+	}
+	return ret;
+}
+#endif
 /* entry point to initialize the plug-in
  * initialize the plug-in itself
  * register the element factories and pad templates
@@ -1608,8 +1461,9 @@ static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement *element, G
  */
 static gboolean plugin_init(GstPlugin *plugin)
 {
+	gst_debug_set_colored(GST_DEBUG_COLOR_MODE_OFF);
 	return gst_element_register(plugin, "dvbaudiosink",
-						 GST_RANK_PRIMARY, // Openazbox not using +1
+						 GST_RANK_PRIMARY,
 						 GST_TYPE_DVBAUDIOSINK);
 }
 
@@ -1621,11 +1475,7 @@ static gboolean plugin_init(GstPlugin *plugin)
 GST_PLUGIN_DEFINE(
 	GST_VERSION_MAJOR,
 	GST_VERSION_MINOR,
-#if GST_VERSION_MAJOR < 1
-	"dvb_audio_out",
-#else
 	dvb_audio_out,
-#endif
 	"DVB Audio Output",
 	plugin_init,
 	VERSION,

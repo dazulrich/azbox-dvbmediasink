@@ -113,20 +113,14 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 #ifdef HAVE_MP3
 #define MPEGCAPS \
 		"audio/mpeg, " \
-		"mpegversion = (int) 1, " \
-		"layer = (int) [ 1, 3 ], " \
-		"parsed = (boolean) true; " \
-		"audio/mpeg, " \
-		"mpegversion = (int) { 2, 4 }, " \
 		"profile = (string) lc, " \
-		"stream-format = (string) { raw, adts, adif, loas }, " \
-		"framed = (boolean) true; "
+		"framed =(boolean) true; "
 #else
 #define MPEGCAPS \
 		"audio/mpeg, " \
 		"mpegversion = (int) 1, " \
 		"layer = (int) [ 1, 2 ], " \
-		"parsed = (boolean) true; "
+		"framed =(boolean) true; "
 #endif
 
 #define AC3CAPS \
@@ -146,10 +140,8 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 		"framed =(boolean) true; "
 
 #define WMACAPS \
-		"audio/x-wma; " \
-
-
-#define XRAW "audio/x-raw"
+		"audio/x-wma, " \
+		"framed =(boolean) true; "
 
 #define PCMCAPS \
 		"audio/x-raw, " \
@@ -196,7 +188,7 @@ static GstFlowReturn gst_dvbaudiosink_render(GstBaseSink * sink, GstBuffer * buf
 static gboolean gst_dvbaudiosink_unlock(GstBaseSink * basesink);
 static gboolean gst_dvbaudiosink_unlock_stop(GstBaseSink * basesink);
 static gboolean gst_dvbaudiosink_set_caps(GstBaseSink * sink, GstCaps * caps);
-static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink * sink, GstCaps *filter);
+static GstCaps *gst_dvbaudiosink_get_caps(GstBaseSink * basesink, GstCaps *filter);
 static GstStateChangeReturn gst_dvbaudiosink_change_state(GstElement * element, GstStateChange transition);
 static gint64 gst_dvbaudiosink_get_decoder_time(GstDVBAudioSink *self);
 #ifdef DREAMBOX

@@ -225,6 +225,42 @@ AC_ARG_WITH(dtsdownmix,
 if test "$have_dtsdownmix" = "yes"; then
 	AC_DEFINE([HAVE_DTSDOWNMIX],[1],[Define to 1 for DTS downmix support])
 fi
+
+AC_ARG_WITH(vuplus,
+	AS_HELP_STRING([--with-vuplus],[build for vuplus, yes or no]),
+	[vuplus=$withval],[vuplus=no])
+if test "$vuplus" = "yes"; then
+	AC_DEFINE([VUPLUS],[1],[Define to 1 for vuplus ])
+fi
+
+AC_ARG_WITH(dreambox,
+	AS_HELP_STRING([--with-dreambox],[build for dreambox, yes or no]),
+	[dreambox=$withval],[dreambox=no])
+if test "$dreambox" = "yes"; then
+	AC_DEFINE([DREAMBOX],[1],[build for dreambox, yes or no ])
+fi
+
+AC_ARG_WITH(max_pcmrate_48K,
+	AS_HELP_STRING([--with-max-pcmrate-48K],[Max PCM rate 48K, yes or no]),
+	[max_pcmrate_48K=$withval],[max_pcmrate_48K=yes])
+if test "$max_pcmrate_48K" = "yes"; then
+	AC_DEFINE([MAX_PCMRATE_48K],[1],[Max PCM rate 48K, yes or no ])
+fi
+
+AC_ARG_WITH(dags,
+	AS_HELP_STRING([--with-dags],[build for dags, yes or no]),
+	[dags=$withval],[dags=no])
+if test "$dags" = "yes"; then
+	AC_DEFINE([DAGS],[1],[build for dags, yes or no ])
+fi
+
+AC_ARG_WITH(azbox,
+	AS_HELP_STRING([--with-azbox],[build for azbox, yes or no]),
+	[azbox=$withval],[dags=no])
+if test "$azbox" = "yes"; then
+	AC_DEFINE([AZBOX],[1],[build for azbox, yes or no ])
+fi
+
 DTS_LIBS="-ldca $LIBM"
 AC_SUBST(DTS_LIBS)
 AM_CONDITIONAL(HAVE_DTSDOWNMIX, test "$have_dtsdownmix" = "yes")

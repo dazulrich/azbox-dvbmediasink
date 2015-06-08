@@ -741,7 +741,7 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 	if (self->fd < 0)
 	{
 		return GST_FLOW_OK;
-	}
+	} 
 
 /* not in Openazbox version
 #if GST_VERSION_MAJOR < 1

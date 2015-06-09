@@ -912,7 +912,7 @@ if (self->check_if_packed_bitstream)
 					}
 					self->must_send_header = FALSE;
 
-				if (self->codec_type == CT_H264 || self->codec_type == CT_VC1)
+/*				if (self->codec_type == CT_H264 || self->codec_type == CT_VC1)
 				{
 					//size_t codec_data_len = GST_BUFFER_SIZE(self->codec_data);
 					memcpy(pes_header + pes_header_len, codec_data, codec_data_size);
@@ -920,7 +920,8 @@ if (self->check_if_packed_bitstream)
 				}
 // From OpenazBox version				
 //				self->must_send_header = FALSE;
-				
+*/				
+				}
 			}
 			if (self->codec_type == CT_H264)
 			{

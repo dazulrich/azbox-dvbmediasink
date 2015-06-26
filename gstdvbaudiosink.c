@@ -806,6 +806,7 @@ static gboolean gst_dvbaudiosink_event(GstBaseSink *sink, GstEvent *event)
 		GstFormat format;
 		gdouble rate;
 		guint64 start, end, pos;
+		int skip = 0;
 		gint64 start_dvb;
 		gst_event_parse_segment(event, &segment);
 		format = segment->format;

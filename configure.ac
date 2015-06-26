@@ -207,11 +207,6 @@ if test "$have_pcm" = "yes"; then
 	AC_DEFINE([HAVE_PCM],[1],[Define to 1 for PCM support])
 fi
 
-AC_ARG_WITH(maxpcmrate,
-	AS_HELP_STRING([--with-maxpcmrate],[Max PCM rate, default is 48000]),
-	[have_maxpcmrate=$withval],[have_maxpcmrate=48000])
-AC_DEFINE_UNQUOTED([MAX_PCM_RATE],["$have_maxpcmrate"],[Max PCM rate])
-
 AC_ARG_WITH(eac3,
 	AS_HELP_STRING([--with-eac3],[support E-AC3 / AC3+ / DDP, yes or no]),
 	[have_eac3=$withval],[have_eac3=no])
@@ -242,7 +237,7 @@ fi
 
 AC_ARG_WITH(max_pcmrate_48K,
 	AS_HELP_STRING([--with-max-pcmrate-48K],[Max PCM rate 48K, yes or no]),
-	[max_pcmrate_48K=$withval],[max_pcmrate_48K=yes])
+	[max_pcmrate_48K=$withval],[max_pcmrate_48K=no])
 if test "$max_pcmrate_48K" = "yes"; then
 	AC_DEFINE([MAX_PCMRATE_48K],[1],[Max PCM rate 48K, yes or no ])
 fi
@@ -252,13 +247,6 @@ AC_ARG_WITH(dags,
 	[dags=$withval],[dags=no])
 if test "$dags" = "yes"; then
 	AC_DEFINE([DAGS],[1],[build for dags, yes or no ])
-fi
-
-AC_ARG_WITH(azbox,
-	AS_HELP_STRING([--with-azbox],[build for azbox, yes or no]),
-	[azbox=$withval],[dags=no])
-if test "$azbox" = "yes"; then
-	AC_DEFINE([AZBOX],[1],[build for azbox, yes or no ])
 fi
 
 DTS_LIBS="-ldca $LIBM"

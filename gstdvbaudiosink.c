@@ -553,7 +553,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		bypass = (wmaversion > 2) ? AUDIOTYPE_WMA_PRO : AUDIOTYPE_WMA;
 		if (codec_data)
 		{
-			guint8 *data;
+			guint8 *data, *tdata;
 			guint8 *codec_data_pointer;
 			gint codec_data_size;
 			gint codecid = 0x160 + wmaversion - 1;
@@ -563,7 +563,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 			codec_data_size = codecdatamap.size;
 			self->codec_data = gst_buffer_new_and_alloc(18 + codec_data_size);
 			gst_buffer_map(self->codec_data, &map, GST_MAP_WRITE);
-			data = map.data;
+			tdata = data = map.data;
 			/* codec tag */
 			*(data++) = codecid & 0xff;
 			*(data++) = (codecid >> 8) & 0xff;
@@ -592,7 +592,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 			*(data++) = (codec_data_size >> 8) & 0xff;
 			memcpy(data, codec_data_pointer, codec_data_size);
 			// from Openazbox code
-			// ioctl(self->fd, AUDIO_SET_CODEC_DATA, tdata);
+			 ioctl(self->fd, AUDIO_SET_CODEC_DATA, tdata);
 			// g_free(tdata);
 			gst_buffer_unmap(self->codec_data, &map);
 			gst_buffer_unmap(gst_value_get_buffer(codec_data), &codecdatamap);
@@ -610,7 +610,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 	}
 	else if (!strcmp(type, XRAW))
 	{
-		guint8 *data;
+		guint8 *data, *tdata;
 		gint size;
 		gint format = 0x01;
 		const gchar *formatstring = NULL;
@@ -618,7 +618,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		self->codec_data = gst_buffer_new_and_alloc(18);
 		GstMapInfo map;
 		gst_buffer_map(self->codec_data, &map, GST_MAP_WRITE);
-		data = map.data;
+		tdata = data = map.data;
 		size = map.size;
 		formatstring = gst_structure_get_string(structure, "format");
 		if (formatstring)
@@ -672,7 +672,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		self->fixed_buffertimestamp = GST_CLOCK_TIME_NONE;
 		self->fixed_bufferduration = GST_SECOND * (GstClockTime)self->fixed_buffersize / (GstClockTime)byterate;
 // Openazbox code
-//		ioctl(self->fd, AUDIO_SET_CODEC_DATA, tdata);
+		ioctl(self->fd, AUDIO_SET_CODEC_DATA, tdata);
 //		g_free(tdata);
 		GST_INFO_OBJECT(self, "MIMETYPE %s", type);
 		bypass = AUDIOTYPE_RAW;

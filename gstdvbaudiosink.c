@@ -133,39 +133,26 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 		"framed =(boolean) true; "
 
 #define WMACAPS \
-		"audio/x-wma, " \
-		"framed =(boolean) true; "
+		"audio/x-wma; " \
 
 #define AMRCAPS \
 		"audio/AMR, " \
 		"rate = (int) {8000, 16000}, channels = (int) 1; "
 
 #define XRAW "audio/x-raw"
-
+#if defined(DREAMBOX) || defined(MAX_PCMRATE_48K)
 #define PCMCAPS \
-		"audio/x-raw-int, " \
-		"endianness = (int) { " G_STRINGIFY(G_BYTE_ORDER) " }, " \
-		"signed = (boolean) { TRUE, FALSE }, " \
-		"width = (int) 32, " \
-		"depth = (int) 32, " \
-		"rate = (int) [ 1, 48000 ], " "channels = (int) [ 1, 2 ]; " \
-		"audio/x-raw-int, " \
-		"endianness = (int) { " G_STRINGIFY(G_BYTE_ORDER) " }, " \
-		"signed = (boolean) { TRUE, FALSE }, " \
-		"width = (int) 24, " \
-		"depth = (int) 24, " \
-		"rate = (int) [ 1, 48000 ], " "channels = (int) [ 1, 2 ]; " \
-		"audio/x-raw-int, " \
-		"endianness = (int) { " G_STRINGIFY(G_BYTE_ORDER) " }, " \
-		"signed = (boolean) { TRUE, FALSE }, " \
-		"width = (int) 16, " \
-		"depth = (int) 16, " \
-		"rate = (int) [ 1, 48000 ], " "channels = (int) [ 1, 2 ]; " \
-		"audio/x-raw-int, " \
-		"signed = (boolean) { TRUE, FALSE }, " \
-		"width = (int) 8, " \
-		"depth = (int) 8, " \
-		"rate = (int) [ 1, 48000 ], " "channels = (int) [ 1, 2 ];"
+		"audio/x-raw, " \
+		"format = (string) { "GST_AUDIO_NE(S32)", "GST_AUDIO_NE(S24)", "GST_AUDIO_NE(S16)", S8, "GST_AUDIO_NE(U32)", "GST_AUDIO_NE(U24)", "GST_AUDIO_NE(U16)", U8 }, " \
+		"layout = (string) { interleaved, non-interleaved }, " \
+		"rate = (int) [ 1, 48000 ], " "channels = (int) [ 1, 2 ]; "
+#else
+#define PCMCAPS \
+		"audio/x-raw, " \
+		"format = (string) { "GST_AUDIO_NE(S32)", "GST_AUDIO_NE(S24)", "GST_AUDIO_NE(S16)", S8, "GST_AUDIO_NE(U32)", "GST_AUDIO_NE(U24)", "GST_AUDIO_NE(U16)", U8 }, " \
+		"layout = (string) { interleaved, non-interleaved }, " \
+		"rate = (int) [ 1, MAX ], " "channels = (int) [ 1, 2 ]; "
+#endif
 
 static GstStaticPadTemplate sink_factory =
 GST_STATIC_PAD_TEMPLATE(
@@ -1152,6 +1139,7 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 		pes_header[pes_header_len++] = 0xa0;
 		pes_header[pes_header_len++] = 0x01;
 	}
+/*	removed in openazbox code
 	else if (self->bypass == AUDIOTYPE_WMA || self->bypass == AUDIOTYPE_WMA_PRO)
 	{
 		if (self->codec_data)
@@ -1171,6 +1159,7 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 			pes_header_len += codec_data_size;
 		}
 	}
+*/
 	else if (self->bypass == AUDIOTYPE_AMR)
 	{
 		if (self->codec_data && codec_data_size >= 17)
@@ -1184,6 +1173,7 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 			pes_header_len += 9;
 		}
 	}
+/*	removed in openazbox code
 	else if (self->bypass == AUDIOTYPE_RAW)
 	{
 		if (self->codec_data && codec_data_size >= 18)
@@ -1203,6 +1193,7 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 			pes_header_len += codec_data_size;
 		}
 	}
+*/
 
 	pes_set_payload_size(size + pes_header_len - 6, pes_header);
 	if (audio_write(self, self->pesheader_buffer, 0, pes_header_len) < 0) goto error;

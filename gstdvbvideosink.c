@@ -838,11 +838,12 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 			if (sscanf((char*)data+pos, "DivX%d%c%d%cp", &tmp1, &c1, &tmp2, &c2) == 4 && (c1 == 'b' || c1 == 'B') && (c2 == 'p' || c2 == 'P')) 
 			{
 				GST_INFO_OBJECT (self, "%s seen... already packed!", (char*)data+pos);
-				self->must_pack_bitstream = FALSE;
+				
 				ioctl(self->fd,	VIDEO_MPEG4_PACKED);
 				break;
 			}
 		}
+	self->must_pack_bitstream = FALSE;
 	}
 #endif
 	pes_header[0] = 0;

@@ -980,9 +980,8 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 			{
 				if (self->codec_type == CT_H264 || self->codec_type == CT_VC1)
 				{
-					size_t codec_data_len = GST_BUFFER_SIZE(self->codec_data);
-					memcpy(pes_header + pes_header_len, GST_BUFFER_DATA(self->codec_data), codec_data_len);
-					pes_header_len += codec_data_len;
+					memcpy(pes_header + pes_header_len, codec_data, codec_data_size);
+					pes_header_len += codec_data_size;
 				}
 				
 				self->must_send_header = FALSE;
@@ -1015,7 +1014,9 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 					unsigned int dest_pos = 0;
 					/* TODO: predict needed size, based on data_len and h264_nal_len_size, and number of frames */
 					tmpbuf = gst_buffer_new_and_alloc(H264_BUFFER_SIZE);
-					dest = GST_BUFFER_DATA(tmpbuf);
+					GstMapInfo tmpmap;
+					gst_buffer_map(tmpbuf, &tmpmap, GST_MAP_READ | GST_MAP_WRITE);
+					dest = tmpmap.data;
 					while (1)
 					{
 						unsigned int pack_len = 0;

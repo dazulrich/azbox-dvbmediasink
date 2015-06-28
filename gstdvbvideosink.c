@@ -869,7 +869,7 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 		pes_header[8] = 5; /* pts size */
 		pes_header_len += 5;
 		pes_set_pts(GST_BUFFER_PTS_IS_VALID(buffer) ? GST_BUFFER_PTS(buffer) : GST_BUFFER_DTS(buffer), pes_header);
-
+/*
 		if (self->codec_data)
 		{
 			if (self->must_send_header)
@@ -893,11 +893,11 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 				unsigned int pos = 0;
 				if (self->h264_nal_len_size >= 3)
 				{
-					/* we need to write to the buffer */
+					// we need to write to the buffer //
 					gst_buffer_unmap(buffer, &map);
 					if (!gst_buffer_is_writable(buffer))
 					{
-						/* buffer is not writable, create a new buffer to which we can write */
+						// buffer is not writable, create a new buffer to which we can write //
 						buffer = tmpbuf = gst_buffer_copy(buffer);
 					}
 					gst_buffer_map(buffer, &map, GST_MAP_READ | GST_MAP_WRITE);
@@ -911,7 +911,7 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 						{
 							pack_len <<= 8;
 							pack_len += data[pos];
-							/* replace the lenght field with \x00..\x00\x01 */
+							// replace the lenght field with \x00..\x00\x01 //
 							data[pos] = (i == self->h264_nal_len_size - 1) ? 1 : 0;
 						}
 						if ((pos + pack_len) >= data_len) break;
@@ -920,10 +920,10 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 				}
 				else
 				{
-					/* length field too small to insert \x00\x00\x01, so we need to copy everything into a second buffer */
+					// length field too small to insert \x00\x00\x01, so we need to copy everything into a second buffer //
 					unsigned char *dest;
 					unsigned int dest_pos = 0;
-					/* TODO: predict needed size, based on data_len and h264_nal_len_size, and number of frames */
+					// TODO: predict needed size, based on data_len and h264_nal_len_size, and number of frames //
 					tmpbuf = gst_buffer_new_and_alloc(H264_BUFFER_SIZE);
 					GstMapInfo tmpmap;
 					gst_buffer_map(tmpbuf, &tmpmap, GST_MAP_READ | GST_MAP_WRITE);
@@ -944,7 +944,7 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 						if ((pos + pack_len) >= data_len) break;
 						pos += pack_len;
 					}
-					/* switch to the h264 buffer, where we copied the original render buffer contents */
+					// switch to the h264 buffer, where we copied the original render buffer contents //
 					gst_buffer_unmap(buffer, &map);
 					gst_buffer_unmap(tmpbuf, &tmpmap);
 					buffer = tmpbuf;
@@ -971,7 +971,75 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 			}
 		}
 	}
-
+*/
+//openazbox code
+		if (self->codec_data)
+		{			
+			if (self->must_send_header)
+			{
+				if (self->codec_type == CT_H264 || self->codec_type == CT_VC1)
+				{
+					size_t codec_data_len = GST_BUFFER_SIZE(self->codec_data);
+					memcpy(pes_header + pes_header_len, GST_BUFFER_DATA(self->codec_data), codec_data_len);
+					pes_header_len += codec_data_len;
+				}
+				
+				self->must_send_header = FALSE;
+				
+			}
+			if (self->codec_type == CT_H264)
+			{
+				unsigned int pos = 0;
+				if (self->h264_nal_len_size >= 3)
+				{
+					while (1)
+					{
+						unsigned int pack_len = 0;
+						int i;
+						for (i = 0; i < self->h264_nal_len_size; i++, pos++)
+						{
+							pack_len <<= 8;
+							pack_len += data[pos];
+							/* replace the lenght field with \x00..\x00\x01 */
+							data[pos] = (i == self->h264_nal_len_size - 1) ? 1 : 0;
+						}
+						if ((pos + pack_len) >= data_len) break;
+						pos += pack_len;
+					}
+				}
+				else
+				{
+					/* length field too small to insert \x00\x00\x01, so we need to copy everything into a second buffer */
+					unsigned char *dest;
+					unsigned int dest_pos = 0;
+					/* TODO: predict needed size, based on data_len and h264_nal_len_size, and number of frames */
+					tmpbuf = gst_buffer_new_and_alloc(H264_BUFFER_SIZE);
+					dest = GST_BUFFER_DATA(tmpbuf);
+					while (1)
+					{
+						unsigned int pack_len = 0;
+						int i;
+						for (i = 0; i < self->h264_nal_len_size; i++, pos++)
+						{
+							pack_len <<= 8;
+							pack_len += data[pos];
+						}
+						memcpy(dest + dest_pos, "\x00\x00\x01", 3);
+						dest_pos += 3;
+						memcpy(dest + dest_pos, data + pos, pack_len);
+						dest_pos += pack_len;
+						if ((pos + pack_len) >= data_len) break;
+						pos += pack_len;
+					}
+					/* switch to the h264 buffer, where we copied the original render buffer contents */
+					buffer = tmpbuf;
+					data = dest;
+					data_len = dest_pos;
+				}
+			}				
+		}
+	}
+	
 #ifdef PACK_UNPACKED_XVID_DIVX5_BITSTREAM
 	if (self->must_pack_bitstream)
 	{

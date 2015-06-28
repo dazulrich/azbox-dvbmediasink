@@ -75,11 +75,11 @@
 
 //From Openazbox code
 #define AUDIO_RESET_STC                	_IO('o', 30)
-#define AUDIO_STC_PLAY					_IO('o', 31)
-#define AUDIO_STC_STOP					_IO('o', 32)
-#define AUDIO_FFW						_IO('o', 33)
-#define AUDIO_FBW						_IO('o', 34)
-#define AUDIO_SET_CODEC_DATA 			_IO('o', 35)
+#define AUDIO_STC_PLAY			_IO('o', 31)
+#define AUDIO_STC_STOP			_IO('o', 32)
+#define AUDIO_FFW			_IO('o', 33)
+#define AUDIO_FBW			_IO('o', 34)
+#define AUDIO_SET_CODEC_DATA 		_IO('o', 35)
 
 GST_DEBUG_CATEGORY_STATIC(dvbaudiosink_debug);
 #define GST_CAT_DEFAULT dvbaudiosink_debug

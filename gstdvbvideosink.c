@@ -839,6 +839,7 @@ static GstFlowReturn gst_dvbvideosink_render(GstBaseSink *sink, GstBuffer *buffe
 			{
 				GST_INFO_OBJECT (self, "%s seen... already packed!", (char*)data+pos);
 				self->must_pack_bitstream = FALSE;
+				ioctl(self->fd,	VIDEO_MPEG4_PACKED);
 				break;
 			}
 		}
@@ -1461,18 +1462,19 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 			case 3:
 			case 43:
 			{
-				#define B_GET_BITS(w,e,b)  (((w)>>(b))&(((unsigned)(-1))>>((sizeof(unsigned))*8-(e+1-b))))
+/*
+			#define B_GET_BITS(w,e,b)  (((w)>>(b))&(((unsigned)(-1))>>((sizeof(unsigned))*8-(e+1-b))))
 				#define B_SET_BITS(name,v,e,b)  (((unsigned)(v))<<(b))
 				static const guint8 brcm_divx311_sequence_header[] =
 				{
 					0x00, 0x00, 0x01, 0xE0, 0x00, 0x34, 0x80, 0x80, // PES HEADER
 					0x05, 0x2F, 0xFF, 0xFF, 0xFF, 0xFF, 
-					0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x20, /* 0 .. 7 */
-					0x08, 0xC8, 0x0D, 0x40, 0x00, 0x53, 0x88, 0x40, /* 8 .. 15 */
-					0x0C, 0x40, 0x01, 0x90, 0x00, 0x97, 0x53, 0x0A, /* 16 .. 24 */
+					0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x20, // 0 .. 7 
+					0x08, 0xC8, 0x0D, 0x40, 0x00, 0x53, 0x88, 0x40, // 8 .. 15 
+					0x0C, 0x40, 0x01, 0x90, 0x00, 0x97, 0x53, 0x0A, // 16 .. 24 
 					0x00, 0x00, 0x00, 0x00,
-					0x30, 0x7F, 0x00, 0x00, 0x01, 0xB2, 0x44, 0x69, /* 0 .. 7 */
-					0x76, 0x58, 0x33, 0x31, 0x31, 0x41, 0x4E, 0x44  /* 8 .. 15 */
+					0x30, 0x7F, 0x00, 0x00, 0x01, 0xB2, 0x44, 0x69, // 0 .. 7 
+					0x76, 0x58, 0x33, 0x31, 0x31, 0x41, 0x4E, 0x44  // 8 .. 15 
 				};
 				self->codec_data = gst_buffer_new_and_alloc(63);
 				guint8 *data;
@@ -1496,7 +1498,7 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 				self->use_dts = TRUE;
 				GST_INFO_OBJECT (self, "MIMETYPE video/x-divx vers. 3 -> STREAMTYPE_DIVX311");
 				gst_buffer_unmap(self->codec_data, &map);
-/*
+*/
 					gint height, width;
 					guint divxdata = 0;
 					gst_structure_get_int (structure, "height", &height);
@@ -1508,8 +1510,8 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 				
 					self->stream_type = STREAMTYPE_DIVX311;
 					self->codec_type = CT_DIVX311;
-					GST_DEBUG_OBJECT (self, "MIMETYPE video/x-divx vers. 3 -> VIDEO_SET_STREAMTYPE, 13");
-*/	
+					GST_INFO_OBJECT (self, "MIMETYPE video/x-divx vers. 3 -> VIDEO_SET_STREAMTYPE, 13");
+	
 			}
 			break;
 			case 4:
@@ -1587,7 +1589,7 @@ static gboolean gst_dvbvideosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		}
 		if (self->playing)
 		{
-			if (self->fd >= 0) ioctl(self->fd, VIDEO_STOP, 0);
+			if (self->fd >= 0) ioctl(self->fd, VIDEO_STC_STOP, 0);
 			self->playing = FALSE;
 		}
 		if (self->fd < 0 || ioctl(self->fd, VIDEO_SET_STREAMTYPE, self->stream_type) < 0)

@@ -114,6 +114,7 @@ static guint gst_dvbaudiosink_signals[LAST_SIGNAL] = { 0 };
 		"mpegversion = (int) 1, " \
 		"layer = (int) [ 1, 2 ], " \
 		"parsed = (boolean) true; "
+#endif
 
 #define AC3CAPS \
 		"audio/x-ac3, " \

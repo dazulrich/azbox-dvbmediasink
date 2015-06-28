@@ -561,10 +561,10 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 			gst_buffer_map(gst_value_get_buffer(codec_data), &codecdatamap, GST_MAP_READ);
 			codec_data_pointer = codecdatamap.data;
 			codec_data_size = codecdatamap.size;
-			//self->codec_data = gst_buffer_new_and_alloc(18 + codec_data_size);
-			//gst_buffer_map(self->codec_data, &map, GST_MAP_WRITE);
-			//data = map.data;
-			tdata = data = (guint8*)g_malloc(18 + codec_data_size);		
+			self->codec_data = gst_buffer_new_and_alloc(18 + codec_data_size);
+			gst_buffer_map(self->codec_data, &map, GST_MAP_WRITE);
+			tdata = data = map.data;
+			// tdata = data = (guint8*)g_malloc(18 + codec_data_size);		
 			/* codec tag */
 			*(data++) = codecid & 0xff;
 			*(data++) = (codecid >> 8) & 0xff;
@@ -594,8 +594,8 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 			memcpy(data, codec_data_pointer, codec_data_size);
 			// from Openazbox code
 			 ioctl(self->fd, AUDIO_SET_CODEC_DATA, tdata);
-			 g_free(tdata);
-		//	gst_buffer_unmap(self->codec_data, &map);
+			// g_free(tdata);
+			gst_buffer_unmap(self->codec_data, &map);
 			gst_buffer_unmap(gst_value_get_buffer(codec_data), &codecdatamap);
 		}
 	}
@@ -611,7 +611,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 	}
 	else if (!strcmp(type, XRAW))
 	{
-		guint8 *data; //, *tdata;
+		guint8 *data, *tdata;
 		gint size;
 		gint format = 0x01;
 		const gchar *formatstring = NULL;
@@ -619,7 +619,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		self->codec_data = gst_buffer_new_and_alloc(18);
 		GstMapInfo map;
 		gst_buffer_map(self->codec_data, &map, GST_MAP_WRITE);
-		data = map.data;
+		tdata = data = map.data;
 		size = map.size;
 		//tdata = data = (guint8*)g_malloc(18);
 		formatstring = gst_structure_get_string(structure, "format");
@@ -674,7 +674,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		self->fixed_buffertimestamp = GST_CLOCK_TIME_NONE;
 		self->fixed_bufferduration = GST_SECOND * (GstClockTime)self->fixed_buffersize / (GstClockTime)byterate;
 // Openazbox code
-		ioctl(self->fd, AUDIO_SET_CODEC_DATA, data);
+		ioctl(self->fd, AUDIO_SET_CODEC_DATA, tdata);
 		//g_free(tdata);
 		GST_INFO_OBJECT(self, "MIMETYPE %s", type);
 		bypass = AUDIOTYPE_RAW;
@@ -1159,7 +1159,6 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 			pes_header_len += codec_data_size;
 		}
 	}
-*/
 	else if (self->bypass == AUDIOTYPE_AMR)
 	{
 		if (self->codec_data && codec_data_size >= 17)
@@ -1173,7 +1172,6 @@ GstFlowReturn gst_dvbaudiosink_push_buffer(GstDVBAudioSink *self, GstBuffer *buf
 			pes_header_len += 9;
 		}
 	}
-/*	removed in openazbox code
 	else if (self->bypass == AUDIOTYPE_RAW)
 	{
 		if (self->codec_data && codec_data_size >= 18)

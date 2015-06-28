@@ -611,17 +611,17 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 	}
 	else if (!strcmp(type, XRAW))
 	{
-		guint8 *data, *tdata;
+		guint8 *data; //, *tdata;
 		gint size;
 		gint format = 0x01;
 		const gchar *formatstring = NULL;
 		gint width = 0, depth = 0, rate = 0, channels, block_align, byterate;
-		//self->codec_data = gst_buffer_new_and_alloc(18);
-		//GstMapInfo map;
-		//gst_buffer_map(self->codec_data, &map, GST_MAP_WRITE);
-		//data = map.data;
-		//size = map.size;
-		tdata = data = (guint8*)g_malloc(18);
+		self->codec_data = gst_buffer_new_and_alloc(18);
+		GstMapInfo map;
+		gst_buffer_map(self->codec_data, &map, GST_MAP_WRITE);
+		data = map.data;
+		size = map.size;
+		//tdata = data = (guint8*)g_malloc(18);
 		formatstring = gst_structure_get_string(structure, "format");
 		if (formatstring)
 		{
@@ -646,7 +646,7 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		gst_structure_get_int(structure, "channels", &channels);
 		byterate = channels * rate * width / 8;
 		block_align = channels * width / 8;
-		// memset(data, 0, size);
+		 memset(data, 0, size);
 		/* format tag */
 		*(data++) = format & 0xff;
 		*(data++) = (format >> 8) & 0xff;
@@ -674,11 +674,11 @@ static gboolean gst_dvbaudiosink_set_caps(GstBaseSink *basesink, GstCaps *caps)
 		self->fixed_buffertimestamp = GST_CLOCK_TIME_NONE;
 		self->fixed_bufferduration = GST_SECOND * (GstClockTime)self->fixed_buffersize / (GstClockTime)byterate;
 // Openazbox code
-		ioctl(self->fd, AUDIO_SET_CODEC_DATA, tdata);
-		g_free(tdata);
+		ioctl(self->fd, AUDIO_SET_CODEC_DATA, data);
+		//g_free(tdata);
 		GST_INFO_OBJECT(self, "MIMETYPE %s", type);
 		bypass = AUDIOTYPE_RAW;
-		//gst_buffer_unmap(self->codec_data, &map);
+		gst_buffer_unmap(self->codec_data, &map);
 	}
 	else
 	{
